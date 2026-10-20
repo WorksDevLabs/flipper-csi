@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="240" viewBox="0 0 960 240" role="img" aria-labelledby="title desc">
+<title id="title">CSI Radar</title><desc id="desc">Wi-Fi motion sensing for Flipper Zero and ESP32-S2</desc>
+<rect width="960" height="240" rx="18" fill="#101820"/>
+<g transform="translate(120 120)" fill="none" stroke="#ff902b"><circle r="66" stroke-width="3"/><circle r="42" stroke-width="2" opacity=".7"/><circle r="18" stroke-width="2" opacity=".5"/><path d="M-74 0H74M0-74V74" stroke-width="1" opacity=".35"/><path d="M0 0L46-46" stroke-width="4"/><circle cx="29" cy="-29" r="5" fill="#ff902b" stroke="none"/></g>
+<text x="230" y="109" font-family="Arial,Helvetica,sans-serif" font-size="54" font-weight="700" fill="#ffffff">CSI Radar</text>
+<text x="232" y="148" font-family="Arial,Helvetica,sans-serif" font-size="22" fill="#becbd5">Wi-Fi motion sensing for Flipper Zero</text>
+<text x="232" y="186" font-family="Arial,Helvetica,sans-serif" font-size="16" fill="#ffae66">ESP32-S2  /  LIVE GRAPH  /  MOTION ALERTS</text>
+</svg>

@@ -1,15 +1,23 @@
+![CSI Radar — Wi-Fi motion sensing for Flipper Zero](docs/banner.svg)
+
 # CSI Radar
 
 **Wi-Fi CSI motion detection for Flipper Zero and the official ESP32-S2 Wi-Fi Developer Board.**
 
-![CSI Radar launcher icon](flipper_app/csi_radar_10px.png)
+[Download FAP](https://github.com/sehmusadsoy-ui/flipper-csi/raw/refs/heads/main/ready/csi_radar.fap) · [Türkçe kurulum](docs/INSTALL_TR.md) · [Controls](#controls) · [Build](#build) · [MIT license](LICENSE)
 
-**v1.0.0 — scoped stable release for the tested E11 / API 87.1 setup.**
+![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-ff902b)
+![API 87.1](https://img.shields.io/badge/Flipper_API-87.1-334155)
+![ESP32-S2](https://img.shields.io/badge/hardware-ESP32--S2-334155)
+![MIT license](https://img.shields.io/badge/license-MIT-334155)
+
+**v1.0.0 — stable build scoped to the tested E11 / API 87.1 setup.**
 Motion detection and vibration were physically checked by the device owner.
 This is a motion detector: it does not measure distance, direction, people count,
 heart rate or stationary human presence.
 
 ## Features
+
 - Live motion score graph, visible threshold, STILL / MOVING states.
 - Calibration, vibration/LED alerts, mute, packet rate and link diagnostics.
 - Separate Wi-Fi, CSI and UART health states; stale scores do not remain valid.
@@ -19,6 +27,7 @@ heart rate or stationary human presence.
 - Native 10×10 monochrome application icon.
 
 ## Compatibility and evidence
+
 | Item | Scope |
 | --- | --- |
 | Physical setup checked | Official Flipper Wi-Fi Devboard, ESP32-S2, E11-patched Momentum d3f89dfe / API 87.1 |
@@ -33,12 +42,21 @@ The icon-bearing FAP still needs an on-device launch check. No universal firmwar
 compatibility or independently calibrated detection accuracy is claimed.
 
 ## Install or update
+
+**No GitHub Actions or local compilation is required.** Download the ready-built
+[FAP](https://github.com/sehmusadsoy-ui/flipper-csi/raw/refs/heads/main/ready/csi_radar.fap),
+or choose **Code → Download ZIP** for source, tools and ESP32 binaries.
+GitHub-hosted workflows have not run; there is no separately published GitHub
+Release at present. The ready-built files were built and checked locally.
+
 1. Copy `ready/csi_radar.fap` to `/ext/apps/GPIO/csi_radar.fap` using qFlipper.
 2. Existing CSI Radar 0.2 users: **only replace the FAP**. Keep the working E11
    firmware and ESP32 firmware; Wi-Fi credentials and threshold remain on ESP32.
 3. First install: flash the three ESP32 binaries using [the Turkish guide](docs/INSTALL_TR.md).
 4. Open Apps → GPIO → CSI Radar. For SSIDs awkward to enter on the Flipper,
    use `python tools/csi_usb.py COMx setup`. Passwords are prompted, not shell arguments.
+
+## Controls
 
 | Button | Action |
 | --- | --- |
@@ -55,6 +73,7 @@ Wi-Fi passwords are stored unencrypted in ESP32 NVS and are visible during
 Flipper keyboard entry. No SSID/password is included in this repository or binaries.
 
 ## Build
+
 Install `ufbt==0.2.6`, then in `flipper_app`:
 
 ```sh
@@ -70,8 +89,11 @@ idf.py build
 ```
 
 Host regression tests: `tools/run_tests.sh`.
-Protocol: [PROTOCOL.md](PROTOCOL.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
+Protocol: [PROTOCOL.md](PROTOCOL.md). Changelog: [CHANGELOG.md](CHANGELOG.md).
+Checksums: [SHA256SUMS.txt](SHA256SUMS.txt). Optional automation is manual-only
+and is not required to install or use the app.
 
 ## License
+
 MIT. Maintained by SauronLAB / Sehmus. Use only in spaces/networks where you
 have permission to perform motion sensing. This is an educational instrument.
