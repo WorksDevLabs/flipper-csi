@@ -4,7 +4,7 @@
 
 **Wi-Fi CSI motion detection for Flipper Zero and the official ESP32-S2 Wi-Fi Developer Board.**
 
-[Download FAP](https://github.com/sehmusadsoy-ui/flipper-csi/raw/refs/heads/main/ready/csi_radar.fap) · [Türkçe kurulum](docs/INSTALL_TR.md) · [Controls](#controls) · [Build](#build) · [MIT license](LICENSE)
+[FAP download page](https://github.com/sehmusadsoy-ui/flipper-csi/blob/main/ready/csi_radar.fap) · [Türkçe kurulum](docs/INSTALL_TR.md) · [Roadmap 1.0 → 1.5 → 2.0](ROADMAP.md) · [Controls](#controls) · [Build](#build) · [MIT license](LICENSE)
 
 ![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-ff902b)
 ![API 87.1](https://img.shields.io/badge/Flipper_API-87.1-334155)
@@ -12,9 +12,22 @@
 ![MIT license](https://img.shields.io/badge/license-MIT-334155)
 
 **v1.0.0 — stable build scoped to the tested E11 / API 87.1 setup.**
-Motion detection and vibration were physically checked by the device owner.
+Motion detection, vibration and threshold adjustment were checked by the device owner.
+The icon-bearing build was subsequently reported to be working in general use.
 This is a motion detector: it does not measure distance, direction, people count,
 heart rate or stationary human presence.
+
+## Three-version product plan
+
+| Version | Focus | Status |
+| --- | --- | --- |
+| **1.0 Core** | Motion detection, graph, calibration and alerts | Current build; basic owner device checks passed |
+| **1.5 Pro** | Setup UX, profiles, quality-aware calibration, SD logging and recovery | Planned |
+| **2.0 Ultimate** | Waterfall/trends, session comparison, improved detection and integrated alarms | Planned |
+
+Exactly three published product versions are planned. See the [full roadmap](ROADMAP.md),
+[current device checks](docs/DEVICE_TESTS_TR.md) and [manual release guide](docs/MANUAL_RELEASE_TR.md).
+Future features are not part of the current FAP.
 
 ## Features
 
@@ -38,13 +51,19 @@ heart rate or stationary human presence.
 | Not yet physically checked | Long idle false-alarm rate, router reconnect, settings persistence after reboot, UART handoff, other firmware versions/boards |
 
 The new launcher icon and version metadata do not change sensing behavior.
-The icon-bearing FAP still needs an on-device launch check. No universal firmware
+The owner reports the icon-bearing app is working; detailed endurance/recovery checks
+remain open. No universal firmware
 compatibility or independently calibrated detection accuracy is claimed.
 
 ## Install or update
 
-**No GitHub Actions or local compilation is required.** Download the ready-built
-[FAP](https://github.com/sehmusadsoy-ui/flipper-csi/raw/refs/heads/main/ready/csi_radar.fap),
+**No GitHub Actions or local compilation is required.** On the FAP file page,
+use **Download raw file**. Anonymous raw downloads have returned 404 for this
+repository; a file confirmed through an authenticated session is not necessarily
+publicly downloadable. Check repository/account access if this occurs.
+
+ Download the ready-built
+[FAP](https://github.com/sehmusadsoy-ui/flipper-csi/blob/main/ready/csi_radar.fap),
 or choose **Code → Download ZIP** for source, tools and ESP32 binaries.
 GitHub-hosted workflows have not run; there is no separately published GitHub
 Release at present. The ready-built files were built and checked locally.

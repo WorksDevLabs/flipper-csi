@@ -9,7 +9,7 @@ kaynaktan derlemeniz gerekmez. [Ana sayfaya dön](../README.md).
 
 ESP32 firmware'i ve algılama kodu 0.2 ile aynıdır. Yalnızca FAP değişir.
 
-1. [csi_radar.fap dosyasını indir](https://github.com/sehmusadsoy-ui/flipper-csi/raw/refs/heads/main/ready/csi_radar.fap).
+1. [csi_radar.fap dosyasını indir](https://github.com/sehmusadsoy-ui/flipper-csi/blob/main/ready/csi_radar.fap).
    Bağlantı yerine GitHub dosya sayfasını kullanırsanız **Download raw file**
    düğmesine basın; web sayfasını HTML olarak kaydetmeyin.
 2. Flipper'da CSI Radar ve Labmate gibi GPIO/UART uygulamalarını kapatın.

@@ -7,8 +7,8 @@
 - Preserve the owner-tested 0.2 sensing, UART protocol and ESP32 binaries unchanged.
 
 Stable scope: E11 / API 87.1 with the official ESP32-S2 Wi-Fi Devboard.
-Other configurations are not physically certified. Icon-bearing app launch remains
-an installation acceptance check; no additional radio validation is implied.
+Other configurations are not physically certified. The icon-bearing app is now reported working by the owner; no additional
+endurance/recovery validation is implied.
 
 ## 0.2
 Initial device-tested motion detector, calibration, vibration, framed serial protocol,
