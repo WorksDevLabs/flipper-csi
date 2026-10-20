@@ -1,0 +1,10 @@
+# Needed for CSI callbacks
+CONFIG_ESP_WIFI_CSI_ENABLED=y
+
+# Keep UART pins free for the Flipper link: logs and PC debugging go over native USB
+CONFIG_ESP_CONSOLE_USB_CDC=y
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# Official Flipper Wi-Fi Developer Board: ESP32-S2-WROVER-N4R2
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y

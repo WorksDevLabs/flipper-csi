@@ -1,0 +1,7 @@
+**/build/
+**/dist/
+**/.vscode/
+**/__pycache__/
+esp32/sdkconfig
+esp32/sdkconfig.old
+*.log

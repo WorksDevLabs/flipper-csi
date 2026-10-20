@@ -1,0 +1,41 @@
+menu "CSI Radar"
+
+    config CSIRADAR_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+        help
+            SSID of the router you own. The ESP32 connects as a station and
+            pings the gateway so that there is steady traffic to read CSI from.
+
+    config CSIRADAR_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+
+    config CSIRADAR_UART_TX_PIN
+        int "UART TX GPIO (ESP32 TX -> Flipper RX, pin 14)"
+        default 43
+        help
+            Defaults are the usual UART0 pins on the ESP32-S2 module.
+            GPIO43/44 match the official Flipper Wi-Fi Devboard V1 schematic.
+            Other boards require their own pin mapping.
+
+    config CSIRADAR_UART_RX_PIN
+        int "UART RX GPIO (ESP32 RX <- Flipper TX, pin 13)"
+        default 44
+
+    config CSIRADAR_PING_INTERVAL_MS
+        int "Ping interval to the router (ms)"
+        range 50 1000
+        default 50
+        help
+            Each echo reply from the router yields one CSI sample, so 50 ms
+            gives roughly 20 samples per second.
+
+    config CSIRADAR_FILTER_BSSID
+        bool "Only use CSI from frames sent by the connected router"
+        default y
+        help
+            Turn off if your router replies from a different MAC address
+            than the one you associated with (some mesh systems do this).
+
+endmenu
