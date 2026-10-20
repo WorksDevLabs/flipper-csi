@@ -38,7 +38,7 @@ jobs:
           idf.py set-target esp32s2
           idf.py build
   release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: [test-and-build, esp32-build]
     runs-on: ubuntu-latest
     permissions:
