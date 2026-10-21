@@ -45,6 +45,8 @@ def main():
     sub = p.add_subparsers(dest="action", required=True)
     sub.add_parser("setup", help="Wi-Fi adı/şifresini sor ve ESP32'ye kaydet")
     sub.add_parser("ping")
+    sub.add_parser("info", help="Show ESP firmware handshake")
+    sub.add_parser("scan", help="List nearby Wi-Fi SSIDs")
     sub.add_parser("save", help="Aktif eşiği ESP32'ye kaydet")
     cal = sub.add_parser("cal")
     cal.add_argument("--packets", type=int, default=100)
@@ -80,13 +82,33 @@ def main():
     port.dtr = port.rts = False
     with port:
         port.reset_input_buffer()
-        if args.action != "record":
+        if args.action in ("info", "scan"):
+            port.write(frame("PING" if args.action == "info" else "SCAN"))
+            deadline = time.monotonic() + (5 if args.action == "info" else 12)
+            while time.monotonic() < deadline:
+                result = payload(port.readline(512))
+                if not result:
+                    continue
+                if result.startswith("ERR,"):
+                    raise RuntimeError(result)
+                if args.action == "info" and result.startswith("HELLO,"):
+                    print(result)
+                    return
+                if args.action == "scan" and result.startswith("AP,"):
+                    fields = result.split(',')
+                    if len(fields) == 6:
+                        print(bytes.fromhex(fields[5]).decode('utf-8', errors='replace'), 'RSSI', fields[2], 'channel', fields[3])
+                if args.action == "scan" and result.startswith("APEND,"):
+                    return
+            raise TimeoutError('No completed firmware/scan response')
+        elif args.action != "record":
             port.write(frame(command))
             await_ack(port, command.split()[0])
         else:
             mode = "RAW 1" if args.raw else "RAW 0"
             # Refuse to overwrite an earlier capture.
             with args.output.open("xb") as out:
+                out.write(b"#CSI_RAW_SCHEMA=1;RAW_MAX_HZ=10;TELEMETRY=CSI2\n")
                 port.write(frame(mode))
                 await_ack(port, "RAW")
                 count = 0
@@ -114,3 +136,4 @@ if __name__ == "__main__":
         main()
     except (OSError, RuntimeError, TimeoutError) as error:
         raise SystemExit(str(error)) from error
+

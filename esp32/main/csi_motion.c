@@ -16,9 +16,12 @@ void csi_motion_init(csi_motion_t* m) {
 }
 void csi_motion_reset(csi_motion_t* m) {
     float threshold = m->threshold;
+    bool automatic=m->automatic; bool interrupted=m->calibrating;
     uint32_t accepted = m->accepted, rejected = m->rejected, clock = m->synthetic_ms;
     csi_motion_init(m);
     m->threshold = threshold;
+    m->automatic=automatic;
+    m->cal_error=interrupted ? 1 : 0;
     m->accepted = accepted;
     m->rejected = rejected;
     m->synthetic_ms = clock;
@@ -27,6 +30,7 @@ void csi_motion_calibrate(csi_motion_t* m, uint32_t packets) {
     csi_motion_reset(m);
     if(packets < 1) packets = 1;
     if(packets > 2000) packets = 2000;
+    m->cal_error=0;
     m->calibrating = true;
     m->cal_total = m->cal_left = packets;
 }
@@ -50,6 +54,7 @@ bool csi_motion_feed(csi_motion_t* m, const int8_t* buf, uint16_t len,
         m->rejected++;
         return false;
     }
+    m->quality=(uint8_t)(100U*(count-clipped)/count);
     /* Remove packet-wide gain changes (e.g. receiver AGC). */
     float mean = total / (float)count;
     for(unsigned i = 0; i < 64; i++) amp[i] /= mean;
@@ -63,12 +68,29 @@ bool csi_motion_feed(csi_motion_t* m, const int8_t* buf, uint16_t len,
     m->accepted++;
     if(m->calibrating) {
         uint32_t k = m->cal_total - m->cal_left + 1;
+        if(k==1) m->cal_start_ms=now_ms;
         float a = 1.0f / (float)k;
-        for(unsigned i = 0; i < 64; i++) m->baseline[i] += a*(amp[i]-m->baseline[i]);
+        for(unsigned i = 0; i < 64; i++) {
+            float delta=amp[i]-m->baseline[i];
+            m->baseline[i] += a*delta;
+            m->cal_m2[i] += delta*(amp[i]-m->baseline[i]);
+        }
         m->primed = true;
         if(--m->cal_left == 0) {
             m->calibrating = false;
-            m->warmup_left = 0;
+            float scatter=0; unsigned used=0;
+            for(unsigned i=0;i<64;i++) if(usable(i) && m->baseline[i]>=0.15f) {
+                scatter+=sqrtf(fmaxf(m->cal_m2[i]/(float)(m->cal_total>1?m->cal_total-1:1),0.0f))/(m->baseline[i]+0.05f);
+                used++;
+            }
+            m->noise=used?scatter/(float)used:2.0f;
+            bool rate_ok=now_ms-m->cal_start_ms<=(m->cal_total>1?m->cal_total-1:1)*200U;
+            m->calibrated=used>=24 && m->noise<=0.10f && rate_ok;
+            m->cal_error=m->calibrated?0:!rate_ok?3:2;
+            m->warmup_left=m->calibrated?0:WARMUP_PACKETS;
+            if(!m->calibrated) m->primed=false;
+            if(m->calibrated && m->automatic)
+                m->threshold=fminf(0.8f,fmaxf(0.04f,m->noise*4.0f+0.02f));
         }
         return true;
     }
@@ -124,3 +146,4 @@ uint32_t csi_motion_progress(const csi_motion_t* m) {
     if(m->warmup_left) return 100U*(WARMUP_PACKETS-m->warmup_left)/WARMUP_PACKETS;
     return 100;
 }
+

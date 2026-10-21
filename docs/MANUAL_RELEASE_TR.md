@@ -1,22 +1,9 @@
-# Workflow olmadan v1.0.0 GitHub Release yayını
+# Pro 1.5 release gate
 
-Depodaki hazır dosyalar workflow olmadan indirilebilir. Bu belge, mevcut
-uygulama sürümünün ayrıca GitHub Releases bölümünde yayımlanması içindir.
-GitHub API bağlantısı bu oturumda Release oluşturma/yükleme işlemi sunmadığından
-Release kaydının oluşturulduğu iddia edilmez.
+Pro 1.5 is currently a device-test candidate. Do not create v1.5.0 until the
+ROADMAP.md acceptance gates have operator results. Development commits on
+dev/v1.5-pro do not count as another product release.
 
-1. GitHub'da oturum açıp depoda **Releases → Draft a new release** seçin.
-2. **Choose a tag → v1.0.0 → Create new tag**. Hedef mevcut `main` olsun.
-   Etiket zaten varsa değiştirmeyin; önce mevcut sürümü kontrol edin.
-3. Başlık: **CSI Radar v1.0.0 — E11 / API 87.1**.
-4. Açıklamaya depodaki [RELEASE_NOTES.md](../RELEASE_NOTES.md) içeriğini koyun.
-5. [ready/csi_radar.fap](../ready/csi_radar.fap) ve hazırlanmış dağıtım ZIP'i ile
-   bunlara ait SHA256 listesini ekleyin. ZIP hazır değilse kaynak+hazır binariler
-   depodadır; yerelde `python tools/package_release.py` ile paketlenebilir.
-   Önce kökteki `SHA256SUMS.txt` dosyasını kontrol edin.
-6. **Set as a pre-release** seçeneğini işaretlemeyin: bu sürümün kararlı kapsamı
-   yalnızca notlarda belirtilen E11/API 87.1 + resmi kart kurulumudur.
-7. İçeriği kontrol edip **Publish release** seçin. Eski etiket/dosyalar değiştirilmez.
-
-Actions erişimindeki engel manuel yayını da etkiliyorsa yayın beklemede kalır;
-yol haritası ve kaynaklara erişim ayrı bir durumdur. Parola/token paylaşmayın.
+After acceptance, prepare the source freeze, ready-built FAP/ESP files, SHA256,
+actual evidence and migration notes. The user may publish v1.5.0 manually without
+GitHub Actions. Preserve v1.0.0 and never move an existing release tag.

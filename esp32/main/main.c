@@ -1,8 +1,9 @@
-/* CSI Radar 0.2: ESP32-S2, 20 MHz LLTF, framed UART protocol v2. */
+/* CSI Radar 1.5 Pro: ESP32-S2, 20 MHz LLTF, framed UART protocol v2. */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -27,13 +28,14 @@ typedef struct { char ssid[33]; char password[65]; } Credentials;
 static QueueHandle_t samples, commands;
 static SemaphoreHandle_t tx_lock;
 static portMUX_TYPE net_lock = portMUX_INITIALIZER_UNLOCKED;
-static struct { bool connected, configured; uint8_t bssid[6]; uint32_t generation, dropped; } net;
+static struct { bool connected, configured; uint8_t bssid[6]; uint32_t generation, dropped; uint8_t reason; bool scan_done; } net;
 static esp_ping_handle_t ping_handle;
 static uint32_t last_enqueued;
 static bool enqueued_once;
 static csi_motion_t motion; /* owned exclusively by engine_task */
 static Credentials credentials;
-static bool raw_enabled;
+static bool raw_enabled, scan_active;
+static uint32_t scan_start;
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time()/1000); }
 
 static void send_payload(const char* payload) {
@@ -93,14 +95,17 @@ static void wifi_event(void* arg, esp_event_base_t base, int32_t id, void* data)
     if(base==WIFI_EVENT && (id==WIFI_EVENT_STA_DISCONNECTED || id==WIFI_EVENT_STA_STOP)) {
         portENTER_CRITICAL(&net_lock);
         net.connected=false; net.generation++;
+        if(id==WIFI_EVENT_STA_DISCONNECTED) net.reason=((wifi_event_sta_disconnected_t*)data)->reason;
         portEXIT_CRITICAL(&net_lock);
         ping_stop();
+    } else if(base==WIFI_EVENT && id==WIFI_EVENT_SCAN_DONE) {
+        portENTER_CRITICAL(&net_lock); net.scan_done=true; portEXIT_CRITICAL(&net_lock);
     } else if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP) {
         wifi_ap_record_t ap;
         if(esp_wifi_sta_get_ap_info(&ap)!=ESP_OK) return;
         portENTER_CRITICAL(&net_lock);
         memcpy(net.bssid,ap.bssid,6);
-        net.connected=true; net.generation++;
+        net.connected=true; net.reason=0; net.generation++;
         portEXIT_CRITICAL(&net_lock);
         ip_event_got_ip_t* event=data;
         ping_start(event->ip_info.gw.addr);
@@ -145,7 +150,28 @@ static void wifi_init(void) {
 }
 static void command(const char* text, bool connected) {
     uint32_t n;
-    if(strcmp(text,"PING")==0) send_payload("ACK,PING,2");
+    if(strcmp(text,"PING")==0) {
+        send_payload("ACK,PING,2"); send_payload("HELLO,1.5.0,2,ESP32-S2");
+    } else if(strcmp(text,"SCAN")==0) {
+        if(scan_active) { send_payload("ERR,SCAN_BUSY"); return; }
+        wifi_scan_config_t cfg={.show_hidden=false};
+        portENTER_CRITICAL(&net_lock); net.scan_done=false; portEXIT_CRITICAL(&net_lock);
+        esp_err_t scan_err=esp_wifi_scan_start(&cfg,false);
+        if(scan_err==ESP_ERR_WIFI_STATE) { esp_wifi_disconnect(); scan_err=esp_wifi_scan_start(&cfg,false); }
+        if(scan_err!=ESP_OK) { send_payload("ERR,SCAN_BUSY"); return; }
+        scan_active=true; scan_start=now_ms(); send_payload("ACK,SCAN");
+    } else if(strncmp(text,"CFG ",4)==0) {
+        char values[32]; strlcpy(values,text+4,sizeof(values));
+        char* space=strchr(values,' '); uint32_t t,mode;
+        if(!space) { send_payload("ERR,CFG"); return; } *space++=0;
+        if(!csi_uint(values,CSI_THR_MIN,CSI_THR_MAX,&t)||!csi_uint(space,0,1,&mode)) {
+            send_payload("ERR,CFG"); return;
+        }
+        motion.threshold=(float)t/1000; motion.automatic=mode!=0;
+        if(motion.automatic && connected && motion.primed && now_ms()-motion.last_ms<CSI_STALE_MS)
+            csi_motion_calibrate(&motion,100);
+        send_payload("ACK,CFG");
+    }
     else if(strcmp(text,"CAL")==0 || strncmp(text,"CAL ",4)==0) {
         if(!connected || !motion.primed || now_ms()-motion.last_ms >= CSI_STALE_MS) {
             send_payload("ERR,NO_CSI"); return;
@@ -156,12 +182,13 @@ static void command(const char* text, bool connected) {
         send_payload("ACK,CAL");
     } else if(strncmp(text,"THR ",4)==0) {
         if(!csi_uint(text+4,CSI_THR_MIN,CSI_THR_MAX,&n)) { send_payload("ERR,THR"); return; }
-        motion.threshold=(float)n/1000.0f;
+        motion.threshold=(float)n/1000.0f; motion.automatic=false;
         send_payload("ACK,THR");
     } else if(strcmp(text,"SAVE")==0) {
         nvs_handle_t h; esp_err_t err=nvs_open("csi_radar",NVS_READWRITE,&h);
         if(err==ESP_OK) {
             err=nvs_set_u32(h,"threshold",(uint32_t)(motion.threshold*1000+0.5f));
+            if(err==ESP_OK) err=nvs_set_u8(h,"automatic",motion.automatic?1:0);
             if(err==ESP_OK) err=nvs_commit(h);
             nvs_close(h);
         }
@@ -169,7 +196,9 @@ static void command(const char* text, bool connected) {
     } else if(strcmp(text,"RAW 0")==0 || strcmp(text,"RAW 1")==0) {
         raw_enabled=text[4]=='1'; send_payload("ACK,RAW");
     } else if(strncmp(text,"WIFI ",5)==0) {
-        char fields[200]; strlcpy(fields,text+5,sizeof(fields));
+        char fields[200];
+        if(strlen(text+5)>=sizeof(fields)) { send_payload("ERR,WIFI"); return; }
+        strlcpy(fields,text+5,sizeof(fields));
         char* space=strchr(fields,' ');
         Credentials c={0};
         if(!space) { send_payload("ERR,WIFI"); return; }
@@ -181,10 +210,15 @@ static void command(const char* text, bool connected) {
         }
         /* Persist one blob atomically. Credentials never appear in telemetry. */
         if(save_credentials(&c)!=ESP_OK) { send_payload("ERR,SAVE"); return; }
+        portENTER_CRITICAL(&net_lock);
+        net.connected=false; net.generation++;
+        portEXIT_CRITICAL(&net_lock);
+        if(scan_active) { esp_wifi_scan_stop(); scan_active=false; }
         esp_err_t err=esp_wifi_stop();
         if(err==ESP_OK) err=configure_wifi(&c);
         if(err==ESP_OK) err=esp_wifi_start();
         if(err==ESP_OK) err=esp_wifi_set_ps(WIFI_PS_NONE);
+        if(err==ESP_OK) err=esp_wifi_set_csi(true);
         if(err==ESP_OK) {
             credentials=c;
             portENTER_CRITICAL(&net_lock);
@@ -228,7 +262,7 @@ static void engine_task(void* arg) {
     (void)arg;
     uint32_t seq=0,last_report=0,last_rate=now_ms(),rate_pkts=0,rate=0;
     uint32_t generation=UINT32_MAX,last_connect=now_ms()-5000,last_raw=0;
-    int rssi=0;
+    int rssi=0; uint32_t last_status=0;
     bool sample_seen=false; uint32_t last_sample_ms=0;
     for(;;) {
         uint32_t now=now_ms(),gen,dropped; bool connected,configured; uint8_t bssid[6];
@@ -240,10 +274,29 @@ static void engine_task(void* arg) {
             csi_motion_reset(&motion); xQueueReset(samples); generation=gen; rate=0;
             rate_pkts=motion.accepted; last_rate=now; sample_seen=false;
         }
-        if(configured && !connected && now-last_connect>=5000) {
+        if(configured && !connected && !scan_active && now-last_connect>=5000) {
             esp_err_t err=esp_wifi_connect();
             if(err!=ESP_OK) ESP_LOGD(TAG,"connect: %s",esp_err_to_name(err));
             last_connect=now;
+        }
+        bool scan_done;
+        portENTER_CRITICAL(&net_lock); scan_done=net.scan_done; net.scan_done=false; portEXIT_CRITICAL(&net_lock);
+        if(scan_active && scan_done) {
+            wifi_ap_record_t records[12]; uint16_t count=12;
+            if(esp_wifi_scan_get_ap_records(&count,records)!=ESP_OK) { send_payload("ERR,SCAN"); count=0; }
+            unsigned shown=0;
+            for(unsigned i=0;i<count;i++) {
+                char ssid[33]={0},hex[65],p[160]; memcpy(ssid,records[i].ssid,32);
+                if(!ssid[0]) continue;
+                csi_hex_encode(ssid,hex,sizeof(hex));
+                snprintf(p,sizeof(p),"AP,%u,%d,%u,%u,%s",shown++,records[i].rssi,records[i].primary,records[i].authmode,hex);
+                send_payload(p);
+            }
+            char p[32]; snprintf(p,sizeof(p),"APEND,%u",shown); send_payload(p);
+            scan_active=false;
+        }
+        if(scan_active && now-scan_start>10000) {
+            esp_wifi_scan_stop(); esp_wifi_clear_ap_list(); scan_active=false; send_payload("ERR,SCAN_TIMEOUT");
         }
         char cmd[CSI_LINE_CAP];
         /* Bound command work so noise cannot starve sample processing. */
@@ -260,15 +313,26 @@ static void engine_task(void* arg) {
            memcmp(s.mac,bssid,6)==0 &&
 #endif
            now_ms()-s.ms<250) {
+            bool was_calibrating=motion.calibrating;
             if(csi_motion_feed(&motion,s.iq,128,s.skip,s.ms)) {
                 rssi=s.rssi; last_sample_ms=s.ms; sample_seen=true;
             }
+            if(was_calibrating && !motion.calibrating) send_payload(motion.cal_error ? "EV,CAL,FAIL" : "EV,CAL,OK");
             if(raw_enabled && s.ms-last_raw>=100) { raw_sample(&s); last_raw=s.ms; }
         }
         now=now_ms();
         if(now-last_rate>=1000) {
             rate=(motion.accepted-rate_pkts)*1000U/(now-last_rate);
             rate_pkts=motion.accepted; last_rate=now;
+        }
+        if(now-last_status>=1000) {
+            uint8_t reason; portENTER_CRITICAL(&net_lock); reason=net.reason; portEXIT_CRITICAL(&net_lock);
+            uint32_t age=sample_seen?now-last_sample_ms:UINT32_MAX;
+            unsigned quality=(age>=CSI_STALE_MS || rate<5 || rssi<-90)?0:
+                (unsigned)fminf((float)motion.quality,(float)(rate>20?20:rate)*3+(rssi>=-75?40:20));
+            char p[100]; snprintf(p,sizeof(p),"STAT,%u,%u,%u,%u,%u,%u",motion.automatic?1:0,
+                (unsigned)(motion.noise*1000),quality,reason,motion.cal_error,motion.calibrated?1:0);
+            send_payload(p); last_status=now;
         }
         if(now-last_report>=100) {
             uint32_t age=sample_seen ? now-last_sample_ms : UINT32_MAX;
@@ -294,11 +358,12 @@ void app_main(void) {
     strlcpy(credentials.password,CONFIG_CSIRADAR_WIFI_PASSWORD,sizeof(credentials.password));
     nvs_handle_t h;
     if(nvs_open("csi_radar",NVS_READONLY,&h)==ESP_OK) {
-        Credentials saved={0}; size_t size=sizeof(saved); uint32_t threshold;
+        Credentials saved={0}; size_t size=sizeof(saved); uint32_t threshold; uint8_t automatic;
         if(nvs_get_blob(h,"wifi",&saved,&size)==ESP_OK && size==sizeof(saved) &&
            memchr(saved.ssid,0,sizeof(saved.ssid)) && memchr(saved.password,0,sizeof(saved.password))) credentials=saved;
         if(nvs_get_u32(h,"threshold",&threshold)==ESP_OK && threshold>=CSI_THR_MIN && threshold<=CSI_THR_MAX)
             motion.threshold=(float)threshold/1000;
+        if(nvs_get_u8(h,"automatic",&automatic)==ESP_OK) motion.automatic=automatic==1;
         memset(&saved,0,sizeof(saved)); nvs_close(h);
     }
     net.configured=credentials.ssid[0]!=0;
@@ -310,9 +375,11 @@ void app_main(void) {
     ESP_ERROR_CHECK(uart_param_config(FLIPPER_UART,&cfg));
     ESP_ERROR_CHECK(uart_set_pin(FLIPPER_UART,CONFIG_CSIRADAR_UART_TX_PIN,CONFIG_CSIRADAR_UART_RX_PIN,
         UART_PIN_NO_CHANGE,UART_PIN_NO_CHANGE));
+    setvbuf(stdin,NULL,_IONBF,0);
     wifi_init();
     configASSERT(xTaskCreate(engine_task,"csi_engine",6144,NULL,4,NULL)==pdPASS);
     configASSERT(xTaskCreate(uart_rx_task,"csi_uart",4096,NULL,3,NULL)==pdPASS);
     configASSERT(xTaskCreate(usb_rx_task,"csi_usb",4096,NULL,2,NULL)==pdPASS);
-    ESP_LOGI(TAG,"CSI Radar 0.2; protocol 2; credentials configured: %s",net.configured ? "yes" : "no");
+    ESP_LOGI(TAG,"CSI Radar 1.5 Pro; protocol 2; credentials configured: %s",net.configured ? "yes" : "no");
 }
+

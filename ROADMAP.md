@@ -15,8 +15,8 @@ hedefler; hayali bir hassas radar iddiasını değil.
 
 | Sürüm | Ürün odağı | Durum |
 | --- | --- | --- |
-| **1.0 — Core** | Hareket algılama, kalibrasyon, canlı grafik, titreşim ve güvenilir seri iletişim | Kod/FAP mevcut; temel cihaz işlevleri kullanıcıda çalışıyor. GitHub Release yayını henüz doğrulanmış değil. |
-| **1.5 — Pro** | Kolay kurulum, kaliteli ölçüm, profiller, SD kayıt ve bağlantı dayanıklılığı | Planlandı; uygulanmadı |
+| **1.0 — Core** | Hareket algılama, kalibrasyon, canlı grafik, titreşim ve güvenilir seri iletişim | v1.0.0 yayımlandı; temel cihaz işlevleri kullanıcıda çalışıyor. |
+| **1.5 — Pro** | Kolay kurulum, kaliteli ölçüm, profiller, SD kayıt ve bağlantı dayanıklılığı | Yazılım/yerel derlemeler hazır; gerçek kayıt ve cihaz kabul kapıları açık |
 | **2.0 — Ultimate** | Çoklu analiz ekranı, oturum karşılaştırma, gelişmiş filtreleme ve bütünleşik alarm deneyimi | Planlandı; uygulanmadı |
 
 ## v1.0.0 — Core / mevcut temel
@@ -40,6 +40,8 @@ bildirilen sonuçlar. Başka firmware/API için ayrı derleme ve fiziksel doğru
 olmadan genel uyumluluk etiketi konmaz. [Cihaz testleri](docs/DEVICE_TESTS_TR.md).
 
 ## v1.5.0 — Pro / günlük kullanım ve ölçüm kalitesi
+
+**Geliştirme durumu:** Yazılım uygulandı; [madde bazlı durum](docs/PRO_1_5_STATUS.md) ve [cihaz testi rehberi](docs/PRO_1_5_TR.md). Gerçek oda kayıtları, 30 dakika/10 geçiş ve 2 saat kapıları açık. Kararlı v1.5 etiketi henüz yok.
 
 ### Zorunlu kapsam
 
@@ -136,5 +138,5 @@ bulunması, bir GitHub Release kaydı oluşturulduğu anlamına gelmez. Workflow
 zorunlu değildir; [manuel yayın adımları](docs/MANUAL_RELEASE_TR.md) kullanılabilir.
 
 Bu roadmap ilerideki işler için tek bağlayıcı listedir. İşaretli maddeler gerçek
-kanıta, işaretsiz maddeler plana karşılık gelir; bu commit 1.5/2.0 özelliklerini
-uygulamaz. 2.0 kapıları tamamlandığında üç sürümlük ürün hedefi tamamlanır.
+kanıta, işaretsiz maddeler plana karşılık gelir; 1.5 yazılımı geliştirme dalındadır, 2.0 ise plan durumundadır. 2.0 kapıları tamamlandığında üç sürümlük ürün hedefi tamamlanır.
+

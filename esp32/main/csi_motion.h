@@ -12,6 +12,10 @@ typedef enum {
 typedef struct {
     float baseline[CSI_MAX_SUBCARRIERS];
     float score, threshold;
+    float cal_m2[CSI_MAX_SUBCARRIERS], noise;
+    uint8_t quality, cal_error;
+    bool automatic, calibrated;
+    uint32_t cal_start_ms;
     uint32_t warmup_left, cal_total, cal_left, last_ms, above_ms, below_ms;
     uint32_t accepted, rejected, synthetic_ms;
     bool primed, calibrating, moving, above_active, below_active;
@@ -30,3 +34,4 @@ bool csi_motion_feed(csi_motion_t* m, const int8_t* buf, uint16_t len,
 float csi_motion_update(csi_motion_t* m, const int8_t* buf, uint16_t len, uint16_t skip);
 csi_state_t csi_motion_state(const csi_motion_t* m);
 uint32_t csi_motion_progress(const csi_motion_t* m);
+

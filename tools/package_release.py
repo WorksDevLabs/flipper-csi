@@ -7,7 +7,7 @@ import zipfile
 root = Path(__file__).resolve().parents[1]
 out = root / 'release-output'
 out.mkdir(exist_ok=True)
-archive = out / 'flipper-csi-v1.0.0.zip'
+archive = out / 'csi-radar-pro-1.5-test.zip'
 excluded = {'.git', 'build', 'dist', '.vscode', '__pycache__', 'release-output'}
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
     for file in sorted(root.rglob('*')):
@@ -24,3 +24,4 @@ files = [root / 'ready/csi_radar.fap', archive]
     hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in files
 ))
 print(archive)
+

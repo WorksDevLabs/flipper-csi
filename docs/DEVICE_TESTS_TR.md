@@ -18,3 +18,4 @@ rastgele değiştirmeyin; eşik ve RSSI/paket hızını not edin.
 
 Yanıt örneği: `T1: 0 alarm; T2: 10/10; T3: PASS; T=0.120; rate=20/s`.
 Bu örnek sonuç değildir. Bir test FAIL ise gerçek bulgu olarak saklanır.
+

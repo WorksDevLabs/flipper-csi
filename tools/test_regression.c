@@ -84,3 +84,4 @@ static void protocol_tests(void) {
     puts("protocol: 200000-byte malformed stream PASS");
 }
 int main(void) { motion_tests(); protocol_tests(); puts("ALL REGRESSIONS PASSED"); }
+

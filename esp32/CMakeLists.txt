@@ -5,3 +5,4 @@ project(flipper_csi_radar)
 if(NOT IDF_TARGET STREQUAL "esp32s2")
     message(FATAL_ERROR "This firmware is for ESP32-S2. Run idf.py set-target esp32s2.")
 endif()
+

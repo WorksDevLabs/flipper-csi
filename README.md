@@ -1,118 +1,91 @@
-![CSI Radar — Wi-Fi motion sensing for Flipper Zero](docs/banner.svg)
+![CSI Radar](docs/banner.svg)
 
-# CSI Radar
+# CSI Radar Pro 1.5 — device-test candidate
 
-**Wi-Fi CSI motion detection for Flipper Zero and the official ESP32-S2 Wi-Fi Developer Board.**
+This is the **development branch for v1.5.0 Pro**, the second planned product
+version after [v1.0.0 Core](https://github.com/sehmusadsoy-ui/flipper-csi/releases/tag/v1.0.0).
+It is not a new stable release or an additional roadmap version. Keep the tested
+1.0 release available. The next/final planned version is 2.0 Ultimate.
 
-[FAP download page](https://github.com/sehmusadsoy-ui/flipper-csi/blob/main/ready/csi_radar.fap) · [Türkçe kurulum](docs/INSTALL_TR.md) · [Roadmap 1.0 → 1.5 → 2.0](ROADMAP.md) · [Controls](#controls) · [Build](#build) · [MIT license](LICENSE)
+**Target:** the owner's E11 / API 87.1 Flipper and official ESP32-S2 Wi-Fi Devboard.
+FAP built with the pinned Momentum mntm-012 SDK; ESP firmware built with ESP-IDF v5.5.
+Both sides must be upgraded for Pro. The Flipper's E11 system firmware stays installed.
 
-![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-ff902b)
-![API 87.1](https://img.shields.io/badge/Flipper_API-87.1-334155)
-![ESP32-S2](https://img.shields.io/badge/hardware-ESP32--S2-334155)
-![MIT license](https://img.shields.io/badge/license-MIT-334155)
+[Turkce kurulum ve test](docs/PRO_1_5_TR.md) · [Implementation and gates](docs/PRO_1_5_STATUS.md) · [Roadmap](ROADMAP.md)
 
-**v1.0.0 — stable build scoped to the tested E11 / API 87.1 setup.**
-Motion detection, vibration and threshold adjustment were checked by the device owner.
-The icon-bearing build was subsequently reported to be working in general use.
-This is a motion detector: it does not measure distance, direction, people count,
-heart rate or stationary human presence.
+## Implemented
 
-## Three-version product plan
-
-| Version | Focus | Status |
-| --- | --- | --- |
-| **1.0 Core** | Motion detection, graph, calibration and alerts | Current build; basic owner device checks passed |
-| **1.5 Pro** | Setup UX, profiles, quality-aware calibration, SD logging and recovery | Planned |
-| **2.0 Ultimate** | Waterfall/trends, session comparison, improved detection and integrated alarms | Planned |
-
-Exactly three published product versions are planned. See the [full roadmap](ROADMAP.md),
-[current device checks](docs/DEVICE_TESTS_TR.md) and [manual release guide](docs/MANUAL_RELEASE_TR.md).
-Future features are not part of the current FAP.
-
-## Features
-
-- Live motion score graph, visible threshold, STILL / MOVING states.
-- Calibration, vibration/LED alerts, mute, packet rate and link diagnostics.
-- Separate Wi-Fi, CSI and UART health states; stale scores do not remain valid.
-- CRC16-protected serial protocol and bounded malformed-input handling.
-- Wi-Fi configuration via Flipper keyboard or USB helper; saved ESP32 settings.
-- USB raw CSI capture tool for tuning and reproducible experiments.
-- Native 10×10 monochrome application icon.
-
-## Compatibility and evidence
-
-| Item | Scope |
-| --- | --- |
-| Physical setup checked | Official Flipper Wi-Fi Devboard, ESP32-S2, E11-patched Momentum d3f89dfe / API 87.1 |
-| App build | Momentum mntm-012 SDK, F7 / API 87.1; FAP validation passed |
-| ESP32 build | ESP-IDF v5.5, esp32s2, 4 MB flash, USB CDC |
-| Owner-observed PASS | ESP32 USB flash/verification, Wi-Fi via USB helper, calibration, MOVING/STILL transitions, vibration |
-| Host tests | Synthetic motion tests, regression tests, ASan/UBSan (leak detection disabled in restricted environment), malformed-stream stress |
-| Not yet physically checked | Long idle false-alarm rate, router reconnect, settings persistence after reboot, UART handoff, other firmware versions/boards |
-
-The new launcher icon and version metadata do not change sensing behavior.
-The owner reports the icon-bearing app is working; detailed endurance/recovery checks
-remain open. No universal firmware
-compatibility or independently calibrated detection accuracy is claimed.
-
-## Install or update
-
-**No GitHub Actions or local compilation is required.** On the FAP file page,
-use **Download raw file**. Anonymous raw downloads have returned 404 for this
-repository; a file confirmed through an authenticated session is not necessarily
-publicly downloadable. Check repository/account access if this occurs.
-
- Download the ready-built
-[FAP](https://github.com/sehmusadsoy-ui/flipper-csi/blob/main/ready/csi_radar.fap),
-or choose **Code → Download ZIP** for source, tools and ESP32 binaries.
-GitHub-hosted workflows have not run; there is no separately published GitHub
-Release at present. The ready-built files were built and checked locally.
-
-1. Copy `ready/csi_radar.fap` to `/ext/apps/GPIO/csi_radar.fap` using qFlipper.
-2. Existing CSI Radar 0.2 users: **only replace the FAP**. Keep the working E11
-   firmware and ESP32 firmware; Wi-Fi credentials and threshold remain on ESP32.
-3. First install: flash the three ESP32 binaries using [the Turkish guide](docs/INSTALL_TR.md).
-4. Open Apps → GPIO → CSI Radar. For SSIDs awkward to enter on the Flipper,
-   use `python tools/csi_usb.py COMx setup`. Passwords are prompted, not shell arguments.
+- Wi-Fi scan/select, including SSIDs containing spaces; manual ASCII keyboard
+  with a SPACE key, masked password and minimum-length validation. UTF-8 SSIDs
+  selected from scans retain their bytes; unsupported glyphs display as `?`.
+- Turkish (ASCII font-safe labels) / English help and version information.
+- Quiet / Normal / Busy presets and a separate retained custom threshold.
+- CRC-protected SD settings with a backup copy; persistent mute/language/profile.
+- Explicit manual / automatic threshold mode. Auto estimates a threshold from
+  the stationary calibration noise; it does not silently follow ongoing motion.
+- Rejection of noisy, interrupted or too-slow calibration; quality/noise display.
+- Firmware handshake, bounded command responses, reconnect reconfiguration and
+  stale-age compensation for display, vibration and logs.
+- Nonblocking SD queue and separate writer: RTC-stamped CSV sessions, state
+  changes, 256 KiB file rotation and visible SD/queue errors. No credentials in CSV.
+- Standard-Python RAW diagnostic replay, CSV output, per-capture JSON comparison.
+- Existing USB setup/capture commands retained; USB `info` and `scan` added.
 
 ## Controls
 
-| Button | Action |
+| Control | Action |
 | --- | --- |
-| OK | Calibrate with 100 valid packets |
-| Hold OK | Configure Wi-Fi |
-| Up / Down | Adjust threshold |
-| Left | Toggle details / graph |
-| Right | Toggle mute |
-| Hold Right | Save ESP32 threshold |
-| Back | Exit / cancel Wi-Fi editor |
+| OK | Calibrate; keep the room still |
+| Hold OK | Scan/select Wi-Fi |
+| Up / Down | Change manual threshold (disables auto) |
+| Left | Details / dashboard |
+| Hold Left | Settings, profiles, SD logging, language, help and version |
+| Right | Mute / unmute (saved on SD) |
+| Hold Right | Save current ESP threshold/mode |
+| Back | Exit / return / delete in keyboard |
+| Keyboard: arrows, OK | Select character, append |
+| Keyboard: Hold OK | Save SSID/password field |
+| Keyboard: Hold Back | Cancel and clear password buffer |
 
-Use a 2.4 GHz WPA2-compatible network; start with 20 MHz channel width.
-Wi-Fi passwords are stored unencrypted in ESP32 NVS and are visible during
-Flipper keyboard entry. No SSID/password is included in this repository or binaries.
+## Auto mode and data quality
 
-## Build
+Auto requires a successful stationary calibration. Its provisional rule is
+`clamp(4 * normalized_noise_std + 0.020, 0.040, 0.800)`. Noise >0.100, fewer
+than 24 useful bins or an average calibration sample interval >200 ms rejects
+calibration. A CSI gap >=2 seconds cancels it. These are engineering starting
+parameters, not real-room accuracy guarantees. `AUTO ?` means calibration is
+not valid; the last manual/configured threshold is the fallback.
 
-Install `ufbt==0.2.6`, then in `flipper_app`:
+`Q` is sample/link quality, not a probability that a person is present. No
+range, direction, identity, stationary occupancy or vital-sign measurement.
+
+## Installation
+
+The test ZIP contains `ready/csi_radar.fap`, the three ESP32 binaries, source,
+SHA256 and Turkish instructions. Upgrade ESP first, then the FAP. The NVS layout
+and Wi-Fi key names are retained; do not use erase-flash. Back up the working
+FAP and any existing SD settings/logs. Do not overwrite the v1.0.0 GitHub assets.
+Only the documented E11/API target is intended; other builds need device checks.
+
+## Build and verification
+
+Flipper, in `flipper_app`:
 
 ```sh
+python -m pip install ufbt==0.2.6
 ufbt update --hw-target f7 --url https://github.com/Next-Flip/Momentum-Firmware/releases/download/mntm-012/flipper-z-f7-sdk-mntm-012.zip
 ufbt
 ```
 
-ESP-IDF v5.5, in `esp32`:
+ESP-IDF v5.5, in `esp32`: `idf.py set-target esp32s2`, then `idf.py build`.
+Host: `ASAN_OPTIONS=detect_leaks=0 SANITIZE=1 sh tools/run_tests.sh`.
+Leak detection is disabled only for the restricted local /proc environment.
+The manual-only workflow runs tests/builds and never publishes a release.
 
-```sh
-idf.py set-target esp32s2
-idf.py build
-```
-
-Host regression tests: `tools/run_tests.sh`.
-Protocol: [PROTOCOL.md](PROTOCOL.md). Changelog: [CHANGELOG.md](CHANGELOG.md).
-Checksums: [SHA256SUMS.txt](SHA256SUMS.txt). Optional automation is manual-only
-and is not required to install or use the app.
+**No Pro device acceptance is claimed yet.** The 30-minute idle, 9/10 walk,
+10 restart/reconnect and 2-hour soak gates in [ROADMAP.md](ROADMAP.md) are open.
+Real stationary/moving captures are also still needed; see [captures](captures/README.md).
 
 ## License
 
-MIT. Maintained by SauronLAB / Sehmus. Use only in spaces/networks where you
-have permission to perform motion sensing. This is an educational instrument.
+MIT · SauronLAB / Sehmus.

@@ -3,3 +3,4 @@ idf_component_register(
     INCLUDE_DIRS "." "../../flipper_app"
     REQUIRES esp_wifi esp_event esp_netif esp_timer nvs_flash esp_driver_uart lwip
 )
+
