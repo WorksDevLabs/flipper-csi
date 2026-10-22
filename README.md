@@ -12,15 +12,14 @@ Ultimate plan.
 
 ## On the device
 
-Actual owner-provided v2.0 device captures. Click an image to open it at full size.
-
-| Ready / manual calibration | Live motion score |
-| :---: | :---: |
-| ![Ready screen](https://raw.githubusercontent.com/sehmusadsoy-ui/flipper-csi/main/docs/screenshots/owner-ready.png) | ![Live score graph](https://raw.githubusercontent.com/sehmusadsoy-ui/flipper-csi/main/docs/screenshots/owner-graph.png) |
-| **Carrier waterfall** | **Connection diagnostics** |
-| ![Carrier waterfall](https://raw.githubusercontent.com/sehmusadsoy-ui/flipper-csi/main/docs/screenshots/owner-waterfall.png) | ![Connection diagnostics](https://raw.githubusercontent.com/sehmusadsoy-ui/flipper-csi/main/docs/screenshots/owner-connection.png) |
-| **Session summary** | **Event history** |
-| ![Session summary](https://raw.githubusercontent.com/sehmusadsoy-ui/flipper-csi/main/docs/screenshots/owner-session.png) | ![Event history](https://raw.githubusercontent.com/sehmusadsoy-ui/flipper-csi/main/docs/screenshots/owner-history.png) |
+| Screen | Purpose |
+| --- | --- |
+| Ready | Place the device still, then press OK to calibrate |
+| Live graph | Follow the motion score, threshold and signal level |
+| Waterfall | View changes across Wi-Fi carriers over time |
+| Connection | Check signal strength, data quality and sample rate |
+| Session summary | Review motion starts, recording time and peak score |
+| Event history | Review recent motion events |
 
 ## Features
 
