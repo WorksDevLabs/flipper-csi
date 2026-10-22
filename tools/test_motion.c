@@ -28,20 +28,20 @@ static void make_packet(int8_t* out, double perturb) {
         double a = base * (1.0 + 0.01 * (frand() - 0.5) * 2.0); /* 1% noise */
         if(perturb > 0.0) a *= 1.0 + perturb * (frand() - 0.5) * 2.0;
         double ph = k * 0.3 + 0.02 * (frand() - 0.5);
-        out[2 * k] = (int8_t)lround(a * sin(ph));     /* imag */
+        out[2 * k] = (int8_t)lround(a * sin(ph)); /* imag */
         out[2 * k + 1] = (int8_t)lround(a * cos(ph)); /* real */
     }
 }
 
 static int failures = 0;
-#define CHECK(cond, msg)                                  \
-    do {                                                  \
-        if(!(cond)) {                                     \
-            printf("  FAIL: %s\n", msg);                  \
-            failures++;                                   \
-        } else {                                          \
-            printf("  ok:   %s\n", msg);                  \
-        }                                                 \
+#define CHECK(cond, msg)                 \
+    do {                                 \
+        if(!(cond)) {                    \
+            printf("  FAIL: %s\n", msg); \
+            failures++;                  \
+        } else {                         \
+            printf("  ok:   %s\n", msg); \
+        }                                \
     } while(0)
 
 int main(void) {
@@ -106,7 +106,8 @@ int main(void) {
         pkt2[1] = (int8_t)(rand() % 255 - 127);
         pkt2[2] = (int8_t)(rand() % 255 - 127);
         pkt2[3] = (int8_t)(rand() % 255 - 127);
-        for(int j = 4; j < 2 * N; j++) pkt2[j] = pkt[j];
+        for(int j = 4; j < 2 * N; j++)
+            pkt2[j] = pkt[j];
         float s = csi_motion_update(&m, pkt2, sizeof(pkt2), 4);
         if(i > 100 && s > max5) max5 = s;
     }
@@ -116,4 +117,3 @@ int main(void) {
     printf("\n%s\n", failures ? "TESTS FAILED" : "ALL TESTS PASSED");
     return failures ? 1 : 0;
 }
-

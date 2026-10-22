@@ -17,7 +17,7 @@ hedefler; hayali bir hassas radar iddiasını değil.
 | --- | --- | --- |
 | **1.0 — Core** | Hareket algılama, kalibrasyon, canlı grafik, titreşim ve güvenilir seri iletişim | v1.0.0 yayımlandı; temel cihaz işlevleri kullanıcıda çalışıyor. |
 | **1.5 — Pro** | Kolay kurulum, kaliteli ölçüm, profiller, SD kayıt ve bağlantı dayanıklılığı | Yazılım/yerel derlemeler hazır; gerçek kayıt ve cihaz kabul kapıları açık |
-| **2.0 — Ultimate** | Çoklu analiz ekranı, oturum karşılaştırma, gelişmiş filtreleme ve bütünleşik alarm deneyimi | Planlandı; uygulanmadı |
+| **2.0 — Ultimate** | Çoklu analiz ekranı, oturum karşılaştırma, gelişmiş filtreleme ve bütünleşik alarm deneyimi | Zorunlu yazılım kapsamı uygulandı; fiziksel ve gerçek kayıt doğrulama kapıları açık |
 
 ## v1.0.0 — Core / mevcut temel
 
@@ -138,5 +138,18 @@ bulunması, bir GitHub Release kaydı oluşturulduğu anlamına gelmez. Workflow
 zorunlu değildir; [manuel yayın adımları](docs/MANUAL_RELEASE_TR.md) kullanılabilir.
 
 Bu roadmap ilerideki işler için tek bağlayıcı listedir. İşaretli maddeler gerçek
-kanıta, işaretsiz maddeler plana karşılık gelir; 1.5 yazılımı geliştirme dalındadır, 2.0 ise plan durumundadır. 2.0 kapıları tamamlandığında üç sürümlük ürün hedefi tamamlanır.
+kanıta, işaretsiz maddeler plana karşılık gelir; 1.5 kaynağı ayrı dalda korunur ve kullanıcı tüm testleri PASS bildirmiştir, 2.0 zorunlu özellikleri uygulanmış son özellik sürümüdür; fiziksel kabul kapsamı BUILD_EVIDENCE.md dosyasında açıklanır. 2.0 kapıları tamamlandığında üç sürümlük ürün hedefi tamamlanır.
 
+
+
+## 2.0 uygulama durumu
+
+Zorunlu özellik grupları uygulandı: [durum matrisi](docs/ULTIMATE_STATUS.md).
+Gerçek kayıtlarla performans karşılaştırması ve fiziksel yayın kapıları açık.
+İsteğe bağlı web/ikinci kart kapsam dışı kararı kullanım rehberinde belgelendi.
+
+## Son yayın kapsamı
+
+Kullanıcı mevcut 2.0 hâlini son sürüm olarak kabul etti. Bu karar, açık fiziksel
+hedefleri gerçekleşmiş saymaz; sayısal sonuç olmadan performans artışı veya
+8 saat/3 yerleşim başarısı yazılmaz. Ayrı doğrulama kaydı korunur.

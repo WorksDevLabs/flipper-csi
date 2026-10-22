@@ -1,14 +1,14 @@
 App(
     appid="csi_radar",
-    name="CSI Radar Pro",
+    name="CSI Radar Ultimate",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="csi_radar_app",
     requires=["gui"],
-    stack_size=6 * 1024,
+    stack_size=12 * 1024,
     fap_category="GPIO",
     fap_icon="csi_radar_10px.png",
     fap_author="SauronLAB / Sehmus",
-    fap_version="1.5",
+    fap_version="2.0",
     fap_description="Wi-Fi CSI motion radar. Reads the score from an ESP32-S2 over UART.",
 )
 

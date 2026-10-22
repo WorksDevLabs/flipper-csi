@@ -1,25 +1,35 @@
 # Changelog
 
-## 1.5 Pro — development / device-test candidate
+## 2.0.0 — Ultimate
 
-Wi-Fi scan/select, masked ASCII editor including SPACE, bilingual help, persistent
-profiles/mute/language, noise/rate-aware auto calibration, handshake/recovery,
-queued SD CSV sessions/rotation and standard-Python RAW diagnostic replay.
-FAP and ESP firmware both change. Local builds/tests pass; real hardware/room
-acceptance gates remain open. No v1.5 stable tag has been created.
+- Optional robust carrier median/MAD + temporal filtering; Classic retained.
+- Real 47-carrier waterfall, event history, session/resource diagnostics.
+- Background SD catalog and A/B summaries; CSV schema 2 includes filter identity.
+- Explicit alarm grace/hold/release/repeat, silent mode, test and stale-data rejection.
+- Offline HTML session/RAW graphs, waterfall and Classic/Robust comparison.
+- Manual measurement start and fresh calibration on user request; pre-start data ignored.
+- Small weighted headers, restored native buttons, framed 10-second graph,
+  centered tables/history and improved graph-only scaling with visible Y range.
+- Backlight remains on while open; normal timeout restored on exit.
+- Protocol 3 handshake; final ESP startup text corrected to 2.0 / protocol 3.
+- Canonical Turkish/English installation, device evidence scope and reproducible hashes.
+- Target remains E11 / API 87.1 + official ESP32-S2. No generic compatibility
+  or improved RF accuracy claim. Real-capture/long-duration acceptance remains open.
 
+## 1.5.0 — Pro
 
-## v1.0.0
-- Add a native 10×10 monochrome radar launcher icon.
-- Set the Flipper application version to 1.0 and add author metadata.
-- Publish source, license, build instructions, firmware compatibility and evidence scope.
-- Preserve the owner-tested 0.2 sensing, UART protocol and ESP32 binaries unchanged.
+- Wi-Fi scanning, masked SSID/password editor, profiles and persistent mute/language.
+- Quality-aware calibration, optional automatic threshold and handshake recovery.
+- Queued SD CSV recording/rotation and offline diagnostic RAW replay.
+- Local builds/tests passed. Owner reported all checklist items PASS; raw numeric
+  results were not supplied. Source is retained on dev/v1.5-pro.
 
-Stable scope: E11 / API 87.1 with the official ESP32-S2 Wi-Fi Devboard.
-Other configurations are not physically certified. The icon-bearing app is now reported working by the owner; no additional
-endurance/recovery validation is implied.
+## 1.0.0 — Core
 
-## 0.2
-Initial device-tested motion detector, calibration, vibration, framed serial protocol,
-ESP32 Wi-Fi setup/persistence and USB capture support.
+- Native launcher icon, baseline motion graph, calibration, threshold and alerts.
+- E11 / API 87.1 + official board owner-tested scope.
+- Original v1.0.0 tag and published artifacts are preserved.
 
+## 0.2 — development history
+
+Initial device-tested movement/still detector, framed UART and USB Wi-Fi setup.

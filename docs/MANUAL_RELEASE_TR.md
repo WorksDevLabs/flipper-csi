@@ -1,9 +1,21 @@
-# Pro 1.5 release gate
+# GitHub Release — son yayın adımı
 
-Pro 1.5 is currently a device-test candidate. Do not create v1.5.0 until the
-ROADMAP.md acceptance gates have operator results. Development commits on
-dev/v1.5-pro do not count as another product release.
+Kaynak commit ve dosyaları doğrulayın. Yayımlanmış v1.0.0 etiketini veya eski
+asset'leri değiştirmeyin. 1.5 kaynağı dev/v1.5-pro dalında korunur.
 
-After acceptance, prepare the source freeze, ready-built FAP/ESP files, SHA256,
-actual evidence and migration notes. The user may publish v1.5.0 manually without
-GitHub Actions. Preserve v1.0.0 and never move an existing release tag.
+2.0 için Releases → Draft a new release:
+
+1. Yeni etiket: v2.0.0. Target: yeni final main commit'i.
+2. Başlık: CSI Radar Ultimate v2.0.0 — E11 / API 87.1.
+3. Açıklama: kökteki RELEASE_NOTES.md dosyasının tamamı.
+4. Ekler: release-output içindeki csi_radar.fap, flipper-csi-v2.0.0.zip ve SHA256SUMS.txt.
+5. Previous tag: v1.0.0 (veya arada gerçekten yayımlanmış 1.5 varsa v1.5.0).
+
+Kaynak dosyalarını yüklemek, tag veya Release oluşturmak değildir. Son yayın
+notundaki fiziksel test sınırlarını kaldırmayın; tüm uzun testler geçmiş gibi
+yazmayın. Açık kabul kapıları nedeniyle ön sürüm olarak yayımlamak uygundur;
+kararlı olarak işaretlemek cihaz sonuçlarının kapsamını genişletmez.
+
+Actions kullanılabiliyorsa Actions → CI build and tests → Run workflow, main.
+Bu oturumda workflow başlatılmadı; daha önceki hesap engeli nedeniyle yerel
+kanıtlar kullanılabilir. Run sonucu yoksa başarılı CI rozeti/iddiası eklemeyin.

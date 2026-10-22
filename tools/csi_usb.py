@@ -47,6 +47,8 @@ def main():
     sub.add_parser("ping")
     sub.add_parser("info", help="Show ESP firmware handshake")
     sub.add_parser("scan", help="List nearby Wi-Fi SSIDs")
+    filt = sub.add_parser("filter", help="Classic/Robust motorunu seç")
+    filt.add_argument("mode", choices=["classic", "robust"])
     sub.add_parser("save", help="Aktif eşiği ESP32'ye kaydet")
     cal = sub.add_parser("cal")
     cal.add_argument("--packets", type=int, default=100)
@@ -71,6 +73,8 @@ def main():
             p.error("SSID 1..32, şifre 8..63 bayt olmalı")
         command = "WIFI " + ssid.hex() + " " + password.hex()
         del password
+    elif args.action == "filter":
+        command = "FILT " + ("1" if args.mode == "robust" else "0")
     elif args.action == "cal":
         command = f"CAL {args.packets}"
     elif args.action == "threshold":

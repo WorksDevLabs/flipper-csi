@@ -6,8 +6,8 @@
 /* 20 MHz LLTF: keep data bins +/-2..26 and -1; exclude DC, guards,
  * pilots (+/-7,+/-21), and bins 0/1 affected by first_word_invalid. */
 static bool usable(unsigned i) {
-    return ((i >= 2 && i <= 26) || (i >= 38 && i <= 63)) &&
-           i != 7 && i != 21 && i != 43 && i != 57;
+    return ((i >= 2 && i <= 26) || (i >= 38 && i <= 63)) && i != 7 && i != 21 && i != 43 &&
+           i != 57;
 }
 void csi_motion_init(csi_motion_t* m) {
     memset(m, 0, sizeof(*m));
@@ -16,12 +16,15 @@ void csi_motion_init(csi_motion_t* m) {
 }
 void csi_motion_reset(csi_motion_t* m) {
     float threshold = m->threshold;
-    bool automatic=m->automatic; bool interrupted=m->calibrating;
+    uint8_t filter = m->filter;
+    bool automatic = m->automatic;
+    bool interrupted = m->calibrating;
     uint32_t accepted = m->accepted, rejected = m->rejected, clock = m->synthetic_ms;
     csi_motion_init(m);
+    m->filter = filter;
     m->threshold = threshold;
-    m->automatic=automatic;
-    m->cal_error=interrupted ? 1 : 0;
+    m->automatic = automatic;
+    m->cal_error = interrupted ? 1 : 0;
     m->accepted = accepted;
     m->rejected = rejected;
     m->synthetic_ms = clock;
@@ -30,12 +33,16 @@ void csi_motion_calibrate(csi_motion_t* m, uint32_t packets) {
     csi_motion_reset(m);
     if(packets < 1) packets = 1;
     if(packets > 2000) packets = 2000;
-    m->cal_error=0;
+    m->cal_error = 0;
     m->calibrating = true;
     m->cal_total = m->cal_left = packets;
 }
-bool csi_motion_feed(csi_motion_t* m, const int8_t* buf, uint16_t len,
-                     uint16_t skip, uint32_t now_ms) {
+bool csi_motion_feed(
+    csi_motion_t* m,
+    const int8_t* buf,
+    uint16_t len,
+    uint16_t skip,
+    uint32_t now_ms) {
     if(!buf || len != 128 || (skip != 0 && skip != 4)) {
         m->rejected++;
         return false;
@@ -44,9 +51,9 @@ bool csi_motion_feed(csi_motion_t* m, const int8_t* buf, uint16_t len,
     unsigned count = 0, clipped = 0;
     for(unsigned i = 0; i < 64; i++) {
         if(!usable(i)) continue;
-        int im = buf[2*i], re = buf[2*i+1];
+        int im = buf[2 * i], re = buf[2 * i + 1];
         if(im == -128 || im == 127 || re == -128 || re == 127) clipped++;
-        amp[i] = sqrtf((float)(im*im + re*re));
+        amp[i] = sqrtf((float)(im * im + re * re));
         total += amp[i];
         count++;
     }
@@ -54,10 +61,14 @@ bool csi_motion_feed(csi_motion_t* m, const int8_t* buf, uint16_t len,
         m->rejected++;
         return false;
     }
-    m->quality=(uint8_t)(100U*(count-clipped)/count);
+    m->quality = (uint8_t)(100U * (count - clipped) / count);
     /* Remove packet-wide gain changes (e.g. receiver AGC). */
     float mean = total / (float)count;
-    for(unsigned i = 0; i < 64; i++) amp[i] /= mean;
+    for(unsigned i = 0; i < 64; i++)
+        amp[i] /= mean;
+    unsigned spectrum_index = 0;
+    for(unsigned i = 0; i < 64; i++)
+        if(usable(i)) m->spectrum[spectrum_index++] = (uint8_t)fminf(255.0f, amp[i] * 64.0f);
     uint32_t dt = m->primed ? now_ms - m->last_ms : 50;
     if(m->primed && dt >= CSI_STALE_MS) {
         /* A gap invalidates calibration as well as the old baseline. */
@@ -68,29 +79,35 @@ bool csi_motion_feed(csi_motion_t* m, const int8_t* buf, uint16_t len,
     m->accepted++;
     if(m->calibrating) {
         uint32_t k = m->cal_total - m->cal_left + 1;
-        if(k==1) m->cal_start_ms=now_ms;
+        if(k == 1) m->cal_start_ms = now_ms;
         float a = 1.0f / (float)k;
         for(unsigned i = 0; i < 64; i++) {
-            float delta=amp[i]-m->baseline[i];
-            m->baseline[i] += a*delta;
-            m->cal_m2[i] += delta*(amp[i]-m->baseline[i]);
+            float delta = amp[i] - m->baseline[i];
+            m->baseline[i] += a * delta;
+            m->cal_m2[i] += delta * (amp[i] - m->baseline[i]);
         }
         m->primed = true;
         if(--m->cal_left == 0) {
             m->calibrating = false;
-            float scatter=0; unsigned used=0;
-            for(unsigned i=0;i<64;i++) if(usable(i) && m->baseline[i]>=0.15f) {
-                scatter+=sqrtf(fmaxf(m->cal_m2[i]/(float)(m->cal_total>1?m->cal_total-1:1),0.0f))/(m->baseline[i]+0.05f);
-                used++;
-            }
-            m->noise=used?scatter/(float)used:2.0f;
-            bool rate_ok=now_ms-m->cal_start_ms<=(m->cal_total>1?m->cal_total-1:1)*200U;
-            m->calibrated=used>=24 && m->noise<=0.10f && rate_ok;
-            m->cal_error=m->calibrated?0:!rate_ok?3:2;
-            m->warmup_left=m->calibrated?0:WARMUP_PACKETS;
-            if(!m->calibrated) m->primed=false;
+            float scatter = 0;
+            unsigned used = 0;
+            for(unsigned i = 0; i < 64; i++)
+                if(usable(i) && m->baseline[i] >= 0.15f) {
+                    scatter += sqrtf(fmaxf(
+                                   m->cal_m2[i] / (float)(m->cal_total > 1 ? m->cal_total - 1 : 1),
+                                   0.0f)) /
+                               (m->baseline[i] + 0.05f);
+                    used++;
+                }
+            m->noise = used ? scatter / (float)used : 2.0f;
+            bool rate_ok = now_ms - m->cal_start_ms <=
+                           (m->cal_total > 1 ? m->cal_total - 1 : 1) * 200U;
+            m->calibrated = used >= 24 && m->noise <= 0.10f && rate_ok;
+            m->cal_error = m->calibrated ? 0 : !rate_ok ? 3 : 2;
+            m->warmup_left = m->calibrated ? 0 : WARMUP_PACKETS;
+            if(!m->calibrated) m->primed = false;
             if(m->calibrated && m->automatic)
-                m->threshold=fminf(0.8f,fmaxf(0.04f,m->noise*4.0f+0.02f));
+                m->threshold = fminf(0.8f, fmaxf(0.04f, m->noise * 4.0f + 0.02f));
         }
         return true;
     }
@@ -101,7 +118,8 @@ bool csi_motion_feed(csi_motion_t* m, const int8_t* buf, uint16_t len,
         return true;
     }
     if(m->warmup_left) {
-        for(unsigned i = 0; i < 64; i++) m->baseline[i] += 0.1f*(amp[i]-m->baseline[i]);
+        for(unsigned i = 0; i < 64; i++)
+            m->baseline[i] += 0.1f * (amp[i] - m->baseline[i]);
         m->warmup_left--;
         return true;
     }
@@ -109,23 +127,72 @@ bool csi_motion_feed(csi_motion_t* m, const int8_t* buf, uint16_t len,
     unsigned used = 0;
     for(unsigned i = 0; i < 64; i++) {
         if(!usable(i) || m->baseline[i] < 0.15f) continue;
-        float dev = fabsf(amp[i]-m->baseline[i])/(m->baseline[i]+0.05f);
+        float dev = fabsf(amp[i] - m->baseline[i]) / (m->baseline[i] + 0.05f);
+        m->deviation[used] = fminf(dev, 2.0f);
         raw += fminf(dev, 2.0f); /* bound deep-fade outliers */
         used++;
     }
     if(used) raw /= (float)used;
-    float a_score = 1.0f-expf(-(float)dt/225.0f);
-    float a_base = 1.0f-expf(-(float)dt/5000.0f);
-    m->score += a_score*(raw-m->score);
-    for(unsigned i = 0; i < 64; i++) m->baseline[i] += a_base*(amp[i]-m->baseline[i]);
+    m->raw_score = raw;
+    if(m->filter && used) {
+        /* Median/MAD winsorisation rejects isolated carrier fades; median-of-3
+         * suppresses one-frame spikes. Opt-in: real-room benefit requires captures. */
+        float sorted[64];
+        memcpy(sorted, m->deviation, used * sizeof(float));
+        for(unsigned i = 1; i < used; i++) {
+            float v = sorted[i];
+            unsigned j = i;
+            while(j && sorted[j - 1] > v) {
+                sorted[j] = sorted[j - 1];
+                j--;
+            }
+            sorted[j] = v;
+        }
+        float median = sorted[used / 2];
+        for(unsigned i = 0; i < used; i++)
+            sorted[i] = fabsf(m->deviation[i] - median);
+        for(unsigned i = 1; i < used; i++) {
+            float v = sorted[i];
+            unsigned j = i;
+            while(j && sorted[j - 1] > v) {
+                sorted[j] = sorted[j - 1];
+                j--;
+            }
+            sorted[j] = v;
+        }
+        m->mad = sorted[used / 2];
+        float limit = median + 3.0f * fmaxf(m->mad, 0.02f);
+        raw = 0;
+        for(unsigned i = 0; i < used; i++)
+            raw += fminf(m->deviation[i], limit);
+        raw /= (float)used;
+        m->last_raw[m->raw_head] = raw;
+        m->raw_head = (m->raw_head + 1) % 3;
+        if(m->raw_count < 3) m->raw_count++;
+        if(m->raw_count == 3) {
+            float a = m->last_raw[0], b = m->last_raw[1], c = m->last_raw[2];
+            raw = fmaxf(fminf(a, b), fminf(fmaxf(a, b), c));
+        }
+    }
+    float a_score = 1.0f - expf(-(float)dt / 225.0f);
+    float a_base = 1.0f - expf(-(float)dt / 5000.0f);
+    m->score += a_score * (raw - m->score);
+    for(unsigned i = 0; i < 64; i++)
+        m->baseline[i] += a_base * (amp[i] - m->baseline[i]);
     if(m->score > m->threshold) {
         m->below_active = false;
-        if(!m->above_active) { m->above_active = true; m->above_ms = now_ms; }
-        if(now_ms-m->above_ms >= 100) m->moving = true;
-    } else if(m->score < m->threshold*0.7f) {
+        if(!m->above_active) {
+            m->above_active = true;
+            m->above_ms = now_ms;
+        }
+        if(now_ms - m->above_ms >= 100) m->moving = true;
+    } else if(m->score < m->threshold * 0.7f) {
         m->above_active = false;
-        if(!m->below_active) { m->below_active = true; m->below_ms = now_ms; }
-        if(now_ms-m->below_ms >= 700) m->moving = false;
+        if(!m->below_active) {
+            m->below_active = true;
+            m->below_ms = now_ms;
+        }
+        if(now_ms - m->below_ms >= 700) m->moving = false;
     } else {
         m->above_active = m->below_active = false;
     }
@@ -142,8 +209,7 @@ csi_state_t csi_motion_state(const csi_motion_t* m) {
     return m->moving ? CSI_STATE_MOVING : CSI_STATE_STILL;
 }
 uint32_t csi_motion_progress(const csi_motion_t* m) {
-    if(m->calibrating && m->cal_total) return 100U*(m->cal_total-m->cal_left)/m->cal_total;
-    if(m->warmup_left) return 100U*(WARMUP_PACKETS-m->warmup_left)/WARMUP_PACKETS;
+    if(m->calibrating && m->cal_total) return 100U * (m->cal_total - m->cal_left) / m->cal_total;
+    if(m->warmup_left) return 100U * (WARMUP_PACKETS - m->warmup_left) / WARMUP_PACKETS;
     return 100;
 }
-

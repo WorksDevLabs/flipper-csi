@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+import statistics
 from pathlib import Path
 
 BINS = [i for i in range(64) if (2 <= i <= 26 or 38 <= i <= 63) and i not in (7, 21, 43, 57)]
@@ -36,13 +37,17 @@ def parse_raw(line):
 
 
 class Replay:
-    def __init__(self, threshold=0.12):
+    def __init__(self, threshold=0.12, mode="classic"):
         if not 0.005 <= threshold <= 2:
             raise ValueError('threshold must be 0.005..2')
+        if mode not in ("classic", "robust"):
+            raise ValueError("mode must be classic or robust")
+        self.mode = mode
         self.threshold = threshold
         self.reset()
 
     def reset(self):
+        self.window = []
         self.baseline = None
         self.left = 40
         self.score = 0.0
@@ -65,6 +70,15 @@ class Replay:
             return 'STILL' if not self.left else 'WARMUP'
         raw = [min(abs(a-b)/(b+0.05), 2.0) for a, b in zip(amplitudes, self.baseline) if b >= 0.15]
         value = sum(raw)/len(raw) if raw else 0
+        if self.mode == "robust" and raw:
+            median = sorted(raw)[len(raw)//2]
+            deviations = sorted(abs(v-median) for v in raw)
+            mad = deviations[len(deviations)//2]
+            limit = median+3*max(mad, 0.02)
+            value = sum(min(v, limit) for v in raw)/len(raw)
+            self.window = (self.window+[value])[-3:]
+            if len(self.window) == 3:
+                value = statistics.median(self.window)
         dt = min(dt, 250)
         self.score += (1-math.exp(-dt/225))*(value-self.score)
         self.baseline = [b+(1-math.exp(-dt/5000))*(a-b) for a, b in zip(amplitudes, self.baseline)]
@@ -85,8 +99,8 @@ class Replay:
         return 'MOVING' if self.moving else 'STILL'
 
 
-def analyze(source, output, threshold):
-    replay = Replay(threshold)
+def analyze(source, output, threshold, mode="classic"):
+    replay = Replay(threshold, mode)
     accepted = rejected = events = moving = 0
     maximum = 0.0
     previous = 'WARMUP'
@@ -109,7 +123,7 @@ def analyze(source, output, threshold):
             maximum = max(maximum, replay.score)
             previous = state
             writer.writerow([1, stamp, rssi, f'{replay.score:.6f}', threshold, state])
-    return dict(schema=1, source=str(source), accepted=accepted, rejected=rejected,
+    return dict(schema=1, filter=mode, source=str(source), accepted=accepted, rejected=rejected,
                 moving_samples=moving, motion_starts=events, max_score=round(maximum, 6),
                 threshold=threshold, caveat='Decimated RAW diagnostic; not bit-exact live replay. No accuracy claim.')
 
@@ -117,6 +131,7 @@ def analyze(source, output, threshold):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('captures', nargs='+', type=Path)
+    p.add_argument('--filter', choices=['classic','robust','both'], default='classic')
     p.add_argument('--threshold', type=float, default=0.12)
     p.add_argument('--output-dir', type=Path, default=Path('replay-output'))
     args = p.parse_args()
@@ -124,8 +139,14 @@ def main():
         p.error('threshold must be 0.005..2')
     args.output_dir.mkdir(parents=True, exist_ok=True)
     results = []
-    for capture in args.captures:
-        result = analyze(capture, args.output_dir/(capture.stem+'.csv'), args.threshold)
+    modes = ['classic','robust'] if args.filter == 'both' else [args.filter]
+    jobs = [(capture, mode, args.output_dir/(capture.stem+('-'+mode if args.filter == 'both' else '')+'.csv'))
+            for capture in args.captures for mode in modes]
+    outputs = [job[2] for job in jobs]+[args.output_dir/'summary.json']
+    if len(set(outputs)) != len(outputs) or any(path.exists() for path in outputs):
+        p.error('Output collision: choose a new output directory')
+    for capture, mode, output in jobs:
+        result = analyze(capture, output, args.threshold, mode)
         results.append(result)
         print(json.dumps(result, ensure_ascii=False))
     with (args.output_dir/'summary.json').open('x', encoding='utf-8') as f:

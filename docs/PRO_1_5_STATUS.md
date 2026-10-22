@@ -1,3 +1,5 @@
+> Historical Pro 1.5 implementation note. Current installation: INSTALL_TR.md / INSTALL_EN.md. Later owner reports: OWNER_TEST_REPORT.md.
+
 # Pro 1.5 implementation and release gate
 
 Status: development/device-test candidate, not tagged or published stable.

@@ -6,3 +6,8 @@ esp32/sdkconfig
 esp32/sdkconfig.old
 *.log
 
+
+**/build-ultimate/
+release-output/
+
+**/build-release/

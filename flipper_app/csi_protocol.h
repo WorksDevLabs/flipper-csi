@@ -5,7 +5,7 @@
 #define CSI_LINE_CAP         256
 #define CSI_THR_MIN          5
 #define CSI_THR_MAX          2000
-#define CSI_PROTOCOL_VERSION 2
+#define CSI_PROTOCOL_VERSION 3
 
 typedef struct {
     uint32_t seq, pkts, age, rate, drops, progress;

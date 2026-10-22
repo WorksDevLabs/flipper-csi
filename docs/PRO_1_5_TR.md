@@ -1,3 +1,5 @@
+> Historical Pro 1.5 implementation note. Current installation: INSTALL_TR.md / INSTALL_EN.md. Later owner reports: OWNER_TEST_REPORT.md.
+
 # CSI Radar Pro 1.5 — kurulum ve cihaz kabulü
 
 Bu paket cihaz testi adayıdır. 1.5 kararlı sürümü henüz yayımlanmadı.

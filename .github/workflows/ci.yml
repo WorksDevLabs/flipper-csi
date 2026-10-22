@@ -1,4 +1,4 @@
-name: Pro 1.5 manual build and tests
+name: CI build and tests
 on:
   workflow_dispatch:
 permissions:
