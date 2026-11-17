@@ -11,3 +11,12 @@ esp32/sdkconfig.old
 release-output/
 
 **/build-release/
+
+# Local credentials, secrets and device/session dumps
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.pem
+*.key
