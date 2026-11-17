@@ -19,7 +19,7 @@ SENSITIVE = ("CONFIG_CSIRADAR_WIFI_PASSWORD", "CONFIG_CSIRADAR_WIFI_SSID")
 
 
 def config_value(text: str, key: str) -> str | None:
-    match = re.search(rf"(?m)^\\s*{re.escape(key)}=(.*)$", text)
+    match = re.search(rf"(?m)^\s*{re.escape(key)}=(.*)$", text)
     return match.group(1).strip() if match else None
 
 
