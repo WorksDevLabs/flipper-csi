@@ -8,6 +8,7 @@
 #include <input/input.h>
 #include <notification/notification_messages.h>
 #include <expansion/expansion.h>
+#include <datetime/datetime.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,23 @@
 #include "csi_graph.h"
 #define GRAPH_POINTS 100
 static const uint32_t delays[] = {0, 5000, 15000};
+/* Armed-alarm sound, about 2.5 s: two rising C7-E7-G7 runs (250 ms notes),
+ * then one long G7. Follows the Flipper volume setting. */
+#define ALARM_NOTE(n) &message_note_##n, &message_delay_250, &message_sound_off, &message_delay_50
+static const NotificationSequence sequence_alarm_sound = {
+    ALARM_NOTE(c7),
+    ALARM_NOTE(e7),
+    ALARM_NOTE(g7),
+    &message_delay_250,
+    ALARM_NOTE(c7),
+    ALARM_NOTE(e7),
+    ALARM_NOTE(g7),
+    &message_delay_100,
+    &message_note_g7,
+    &message_delay_500,
+    &message_sound_off,
+    NULL,
+};
 #define RX_STOP      1U
 #define VIEW_RADAR   0
 #define VIEW_MENU    1
@@ -31,7 +49,7 @@ typedef struct {
     uint32_t wave_tick, perf[6], heap, heap_min, uart_rate, draw_max_ms;
     CsiSavedSession compare[2];
     bool compare_ready[2], alarm_armed, alarm_active;
-    uint32_t alarm_wait;
+    uint32_t alarm_wait, alarm_count, last_motion_ms;
     CsiUltimatePrefs ultimate;
     CsiSession session;
     bool started, starting, await_cal_frame;
@@ -81,12 +99,24 @@ typedef struct {
     CsiSettings settings, desired;
     bool loaded, settings_pending, was_moving, logging, synced;
     char ssid[33], password[64], pending[12];
+    bool quiet; /* pending command is internal bookkeeping: no Sending/confirmed toasts */
     uint32_t sent_tick, last_ping, last_log, last_epoch, scan_tick;
     unsigned editing, menu_kind, sync_attempts;
     bool in_menu, scanning, dirty;
     uint32_t dirty_tick;
     int32_t log_previous;
+    bool alarm_was_active, seen_motion;
+    uint32_t alarm_count, last_motion_ms;
+    uint32_t session_tick, saved_events, saved_valid_ms;
 } RadarApp;
+/* Screens reachable with the Right key, in order. Page 0 is the live dashboard. */
+static const uint8_t cycle_pages[] = {0, 6, 1, 11, 4, 5};
+#define CYCLE_COUNT (sizeof(cycle_pages) / sizeof(cycle_pages[0]))
+static int cycle_index(unsigned page) {
+    for(unsigned i = 0; i < CYCLE_COUNT; i++)
+        if(cycle_pages[i] == page) return (int)i;
+    return -1;
+}
 static uint32_t milliseconds(uint32_t ticks) {
     return (uint32_t)((uint64_t)ticks * 1000U / furi_kernel_get_tick_frequency());
 }
@@ -126,7 +156,7 @@ static bool tx(RadarApp* a, const char* payload) {
     memset(frame, 0, sizeof(frame));
     return true;
 }
-static bool send_command(RadarApp* a, const char* payload, const char* name) {
+static bool send_command_ex(RadarApp* a, const char* payload, const char* name, bool quiet) {
     RadarModel m;
     snapshot(a, &m);
     if(!ready(&m)) {
@@ -143,13 +173,17 @@ static bool send_command(RadarApp* a, const char* payload, const char* name) {
     }
     snprintf(a->pending, sizeof(a->pending), "%s", name);
     a->sent_tick = furi_get_tick();
-    toast(a, tr(a, "Sending...", "Gonderiliyor..."));
+    a->quiet = quiet;
+    if(!quiet) toast(a, tr(a, "Sending...", "Gonderiliyor..."));
     return true;
 }
-static bool configure(RadarApp* a, const CsiSettings* settings) {
+static bool send_command(RadarApp* a, const char* payload, const char* name) {
+    return send_command_ex(a, payload, name, false);
+}
+static bool configure(RadarApp* a, const CsiSettings* settings, bool quiet) {
     char cmd[32];
     snprintf(cmd, sizeof(cmd), "CFG %u %u", settings->threshold, settings->automatic ? 1 : 0);
-    if(!send_command(a, cmd, "CFG")) return false;
+    if(!send_command_ex(a, cmd, "CFG", quiet)) return false;
     a->desired = *settings;
     a->settings_pending = true;
     return true;
@@ -281,23 +315,41 @@ static void draw_text(Canvas* c, int x, int y, const char* text) {
     }
     canvas_draw_str(c, x, y, clipped);
 }
-static void draw_footer(Canvas* c, bool turkish, bool calibrate) {
+/* Left is always the menu; center/right labels may be NULL to hide that button. */
+static void draw_footer(Canvas* c, const char* center, const char* right) {
     canvas_set_font(c, FontSecondary);
+    canvas_set_color(c, ColorBlack);
     elements_button_left(c, "Menu");
-    elements_button_center(c, calibrate ? (turkish ? "Kal" : "Cal") : "Menu");
-    elements_button_right(c, turkish ? "Mod" : "Mode");
+    if(center) elements_button_center(c, center);
+    if(right) elements_button_right(c, right);
 }
-static void small_heading(Canvas* c, int x, int y, const char* text, bool centered) {
+static const char* next_label(bool turkish) {
+    return turkish ? "Ekran" : "Next";
+}
+static void small_heading(Canvas* c, int x, int y, const char* text, bool centered, int width) {
     canvas_set_font(c, FontSecondary);
     char b[64];
     snprintf(b, sizeof(b), "%s", text);
     size_t n = strlen(b);
-    int width = centered ? 123 : 88;
     while(n && canvas_string_width(c, b) + 1 > width)
         b[--n] = 0;
     if(centered) x = (128 - canvas_string_width(c, b) - 1) / 2;
     canvas_draw_str(c, x, y, b);
     canvas_draw_str(c, x + 1, y, b);
+}
+/* Title row of secondary screens; cycle screens also show their position. */
+static void page_title(Canvas* c, unsigned page, const char* title) {
+    int index = cycle_index(page);
+    if(index > 0) {
+        char pos[8];
+        snprintf(pos, sizeof(pos), "%d/%u", index + 1, (unsigned)CYCLE_COUNT);
+        canvas_set_font(c, FontSecondary);
+        int w = canvas_string_width(c, pos);
+        canvas_draw_str_aligned(c, 127, 8, AlignRight, AlignBottom, pos);
+        small_heading(c, 2, 8, title, false, 124 - w - 4);
+    } else
+        small_heading(c, 2, 8, title, true, 123);
+    canvas_draw_line(c, 0, 10, 127, 10);
 }
 static void draw_cell(Canvas* c, int x, int y, unsigned width, const char* text) {
     char b[64];
@@ -328,63 +380,146 @@ static void table_frame(Canvas* c) {
 static void draw_rows(Canvas* c, const char* labels[4], char values[4][32]) {
     canvas_set_font(c, FontSecondary);
     table_frame(c);
-    canvas_draw_line(c, 76, 12, 76, 50);
+    canvas_draw_line(c, 72, 12, 72, 50);
     for(unsigned i = 0; i < 4; i++) {
-        center_cell(c, 4, table_y(i), 69, labels[i]);
-        center_cell(c, 79, table_y(i), 44, values[i]);
+        center_cell(c, 4, table_y(i), 66, labels[i]);
+        center_cell(c, 75, table_y(i), 49, values[i]);
     }
 }
-static void signal_header(Canvas* c, const CsiReport* r, bool linked) {
+static void signal_bars(Canvas* c, const CsiReport* r, bool linked) {
     canvas_set_font(c, FontSecondary);
     unsigned bars = !linked ? 0 : r->rssi >= -55 ? 4 : r->rssi >= -67 ? 3 : r->rssi >= -80 ? 2 : 1;
     for(unsigned i = 0; i < 4; i++) {
         int h = 1 + i * 2;
         if(i < bars)
-            canvas_draw_box(c, 94 + i * 3, 9 - h, 2, h);
+            canvas_draw_box(c, 96 + i * 3, 9 - h, 2, h);
         else
-            canvas_draw_dot(c, 94 + i * 3, 8);
+            canvas_draw_dot(c, 96 + i * 3, 8);
     }
     char b[8];
     if(linked)
         snprintf(b, sizeof(b), "%ld", (long)r->rssi);
     else
         snprintf(b, sizeof(b), "--");
-    canvas_draw_str_aligned(c, 127, 9, AlignRight, AlignBottom, b);
+    canvas_draw_str_aligned(c, 126, 9, AlignRight, AlignBottom, b);
+}
+/* 8x8 status box: 0 open, 1 done (check mark), 2 in progress (blinking dot). */
+static void draw_check(Canvas* c, int x, int y, unsigned state) {
+    canvas_draw_frame(c, x, y - 7, 8, 8);
+    if(state == 1) {
+        canvas_draw_line(c, x + 1, y - 4, x + 3, y - 2);
+        canvas_draw_line(c, x + 3, y - 2, x + 6, y - 5);
+        canvas_draw_line(c, x + 1, y - 3, x + 3, y - 1);
+        canvas_draw_line(c, x + 3, y - 1, x + 6, y - 4);
+    } else if(state == 2 && (milliseconds(furi_get_tick()) / 400) % 2)
+        canvas_draw_box(c, x + 2, y - 5, 4, 4);
+}
+static void format_ago(char* out, size_t size, uint32_t ms, bool tr) {
+    uint32_t s = ms / 1000;
+    if(s < 60)
+        snprintf(out, size, tr ? "%lusn" : "%lus", (unsigned long)s);
+    else if(s < 3600)
+        snprintf(
+            out,
+            size,
+            tr ? "%ludk%02lusn" : "%lum%02lus",
+            (unsigned long)(s / 60),
+            (unsigned long)(s % 60));
+    else
+        snprintf(
+            out,
+            size,
+            tr ? "%lusa%02ludk" : "%luh%02lum",
+            (unsigned long)(s / 3600),
+            (unsigned long)(s / 60 % 60));
 }
 static void draw_monitor(Canvas* c, RadarModel* m, bool linked, bool fresh, const char* label) {
     bool tr = m->prefs.language;
     CsiReport* r = &m->report;
-    char b[48], range[24] = "10 s";
+    char b[48];
+    bool board = linked && m->hello && !m->busy;
+    bool wifi = board && r->state != 5 && r->state != 6;
+    bool csi = wifi && r->state != 4 && fresh;
+    bool learning = m->starting || (fresh && m->started && (r->state == 0 || r->state == 3));
+    bool measuring = m->started && !m->starting && fresh && (r->state == 1 || r->state == 2);
+    uint32_t now = milliseconds(furi_get_tick());
+
+    /* Banner: the one thing to read from across the room. Inverted while moving. */
+    const char* banner = measuring ? label :
+                         learning  ? (tr ? "KALIBRE" : "CALIBRATING") :
+                         csi       ? (tr ? "HAZIR" : "READY") :
+                                     (tr ? "KURULUM" : "SETUP");
+    if(m->alarm_armed && measuring) {
+        if(m->alarm_active)
+            banner = "ALARM!";
+        else if(m->alarm_wait) {
+            snprintf(b, sizeof(b), tr ? "KURULUYOR %lu" : "ARMING %lu", (unsigned long)m->alarm_wait);
+            banner = b;
+        }
+    }
+    bool invert = measuring && (r->state == 2 || m->alarm_active);
+    if(m->alarm_active && measuring && (now / 333) % 2) invert = !invert;
+    if(invert) {
+        canvas_draw_box(c, 0, 0, 128, 11);
+        canvas_set_color(c, ColorWhite);
+    } else
+        canvas_draw_line(c, 0, 10, 127, 10);
+    canvas_set_font(c, FontPrimary);
+    char text[48];
+    snprintf(text, sizeof(text), "%s", banner);
+    size_t n = strlen(text);
+    while(n && canvas_string_width(c, text) > 90)
+        text[--n] = 0;
+    canvas_draw_str(c, 2, 9, text);
+    int label_end = 2 + canvas_string_width(c, text) + 4;
     canvas_set_font(c, FontSecondary);
-    small_heading(
-        c,
-        2,
-        8,
-        !m->started ?
-            (m->starting ? (tr ? "HAZIRLANIYOR" : "STARTING") : (tr ? "HAZIR" : "READY")) :
-        m->starting ? (tr ? "KALIBRE" : "CALIBRATING") :
-                      label,
-        false);
-    signal_header(c, r, linked && r->state != 5 && r->state != 6 && r->rssi < 0);
+    /* Status flags between label and signal, most important first. */
+    const char* flags[4];
+    unsigned count = 0;
+    if(m->prefs_error || m->log_state == 2) flags[count++] = "SD!";
+    if(m->log_state == 1 && (now / 600) % 2) flags[count++] = "REC";
+    if(m->alarm_armed) flags[count++] = "ALM";
+    if(m->prefs.muted) flags[count++] = tr ? "TITR-" : "VIB-";
+    char flag_text[24] = "";
+    for(; count; count--) {
+        flag_text[0] = 0;
+        for(unsigned i = 0; i < count; i++) {
+            if(i) strcat(flag_text, " ");
+            strcat(flag_text, flags[i]);
+        }
+        if(canvas_string_width(c, flag_text) <= 92 - label_end) break;
+    }
+    if(count) canvas_draw_str_aligned(c, 92, 9, AlignRight, AlignBottom, flag_text);
+    signal_bars(c, r, linked && r->state != 5 && r->state != 6 && r->rssi < 0);
+    canvas_set_color(c, ColorBlack);
+
     canvas_draw_frame(c, 1, 12, 126, 29);
     canvas_set_font(c, FontSecondary);
-    if(!linked || !m->hello || r->state >= 4) {
-        draw_text(c, 7, 27, tr ? "Kart / WiFi verisi bekleniyor" : "Waiting for board / WiFi");
-        draw_text(c, 7, 36, tr ? "Menu > WiFi kurulumu" : "Menu > WiFi setup");
-    } else if(!m->started && !m->starting) {
-        draw_text(c, 7, 27, tr ? "Cihazi sabit yerlestir" : "Place the device still");
-        draw_text(c, 7, 36, tr ? "OK ile kalibrasyonu baslat" : "Press OK to calibrate");
-    } else if(m->starting || (fresh && (r->state == 0 || r->state == 3))) {
-        snprintf(
-            b,
-            sizeof(b),
-            tr ? "Ogreniyor %lu%%" : "Learning %lu%%",
-            (unsigned long)(m->starting ? 0 : r->progress));
-        draw_text(c, 7, 27, b);
-        draw_text(c, 7, 36, tr ? "Lutfen hareket etme" : "Please remain still");
-    } else if(!linked || !m->hello || !fresh || r->state >= 4) {
-        draw_text(c, 7, 27, tr ? "Gecerli veri bekleniyor" : "Waiting for valid data");
-        draw_text(c, 7, 36, tr ? "Menu > WiFi / Baglanti" : "Menu > WiFi / Connection");
+    uint32_t ymax = 0;
+    const char* hint = NULL;
+    if(learning) {
+        unsigned progress = m->starting ? 0 : (unsigned)r->progress;
+        if(progress > 100) progress = 100;
+        snprintf(b, sizeof(b), tr ? "Ogreniyor  %u%%" : "Learning  %u%%", progress);
+        draw_text(c, 6, 23, b);
+        elements_progress_bar(c, 6, 27, 116, progress / 100.0f);
+        hint = tr ? "Hareket etmeyin" : "Please stay still";
+    } else if(!measuring) {
+        unsigned cal = m->started && !m->starting ? 1 : 0;
+        draw_check(c, 6, 24, board ? 1 : linked ? 2 : 0);
+        draw_text(c, 17, 24, tr ? "Kart" : "Board");
+        draw_check(c, 66, 24, wifi ? 1 : board ? 2 : 0);
+        draw_text(c, 77, 24, "WiFi");
+        draw_check(c, 6, 36, csi ? 1 : wifi ? 2 : 0);
+        draw_text(c, 17, 36, "CSI");
+        draw_check(c, 66, 36, cal);
+        draw_text(c, 77, 36, tr ? "Kalibre" : "Calibrated");
+        hint = m->busy        ? (tr ? "UART mesgul" : "UART busy") :
+               !linked        ? (tr ? "ESP kart bekleniyor" : "Waiting for ESP board") :
+               !m->hello      ? (tr ? "ESP 2.0 yazilimi gerekli" : "ESP firmware 2.0 needed") :
+               !wifi          ? (tr ? "Menu > WiFi kurulumu" : "Menu > WiFi setup") :
+               !csi           ? (tr ? "Router verisi bekleniyor" : "Waiting for router data") :
+                                (tr ? "Sabit koy, OK: kalibre" : "Keep still, OK: calibrate");
     } else {
         uint32_t peak = 0;
         for(unsigned i = 0; i < m->count; i++) {
@@ -394,13 +529,7 @@ static void draw_monitor(Canvas* c, RadarModel* m, bool linked, bool fresh, cons
                v > peak)
                 peak = v;
         }
-        uint32_t ymax = csi_graph_scale((uint32_t)r->threshold, peak);
-        snprintf(
-            range,
-            sizeof(range),
-            "Y%lu.%03lu 10s",
-            (unsigned long)(ymax / 1000),
-            (unsigned long)(ymax % 1000));
+        ymax = csi_graph_scale((uint32_t)r->threshold, peak);
         int ty = csi_graph_y((uint32_t)r->threshold, ymax);
         for(int x = 4; x <= 123; x += 4)
             canvas_draw_dot(c, x, ty);
@@ -419,23 +548,80 @@ static void draw_monitor(Canvas* c, RadarModel* m, bool linked, bool fresh, cons
             py = y;
         }
     }
+
+    /* Bottom row: toast, setup hint, or live score / alarm summary. */
     canvas_set_font(c, FontSecondary);
-    if(m->started && fresh && !m->starting && (r->state == 1 || r->state == 2)) {
-        unsigned score = (unsigned)(r->score + 5) / 10;
-        snprintf(b, sizeof(b), "%u.%02u", score / 100, score % 100);
-    } else
-        snprintf(b, sizeof(b), "--");
-    bool show_toast = m->toast[0] && recent(m->toast_tick, 2200);
-    if(!show_toast) draw_text(c, 3, 49, b);
-    const char* status = m->prefs_error    ? (tr ? "SD AYAR HATASI" : "SD SETTINGS ERROR") :
-                         m->log_state == 2 ? "SD HATA" :
-                         m->alarm_armed    ? (tr ? "ALARM ACIK" : "ALARM ON") :
-                         m->prefs.muted    ? (tr ? "SESSIZ" : "MUTED") :
-                         m->log_state == 1 ? (tr ? "KAYIT" : "REC") :
-                                             range;
-    if(!show_toast) canvas_draw_str_aligned(c, 125, 49, AlignRight, AlignBottom, status);
-    if(m->toast[0] && recent(m->toast_tick, 2200)) draw_text(c, 2, 49, m->toast);
-    draw_footer(c, tr, true);
+    if(m->toast[0] && recent(m->toast_tick, 2200))
+        draw_text(c, 2, 50, m->toast);
+    else if(hint)
+        draw_text(c, 2, 50, hint);
+    else if(m->alarm_armed) {
+        char ago[16] = "--";
+        if(m->last_motion_ms != UINT32_MAX) format_ago(ago, sizeof(ago), now - m->last_motion_ms, tr);
+        snprintf(b, sizeof(b), tr ? "Son hareket: %s" : "Last motion: %s", ago);
+        draw_text(c, 2, 50, b);
+        snprintf(b, sizeof(b), "x%lu", (unsigned long)m->alarm_count);
+        canvas_draw_str_aligned(c, 126, 50, AlignRight, AlignBottom, b);
+    } else {
+        unsigned score = r->score > 0 ? (unsigned)r->score : 0;
+        snprintf(b, sizeof(b), "%u.%03u", score / 1000, score % 1000);
+        canvas_draw_str(c, 2, 50, b);
+        snprintf(
+            b,
+            sizeof(b),
+            "T%lu.%03lu%s",
+            (unsigned long)(r->threshold / 1000),
+            (unsigned long)(r->threshold % 1000),
+            m->status.automatic ? "A" : "");
+        int tw = canvas_string_width(c, b);
+        canvas_draw_str_aligned(c, 126, 50, AlignRight, AlignBottom, b);
+        /* Score bar with threshold tick, same scale as the graph. */
+        int x0 = 30, x1 = 126 - tw - 5, w = x1 - x0;
+        if(w > 10 && ymax) {
+            uint32_t fill = score > ymax ? ymax : score;
+            canvas_draw_frame(c, x0, 44, w, 6);
+            canvas_draw_box(c, x0 + 1, 45, (size_t)((uint64_t)fill * (w - 2) / ymax), 4);
+            uint32_t thr = (uint32_t)r->threshold > ymax ? ymax : (uint32_t)r->threshold;
+            int tx = x0 + 1 + (int)((uint64_t)thr * (w - 2) / ymax);
+            canvas_draw_line(c, tx, 42, tx, 51);
+        }
+    }
+    draw_footer(c, tr ? "Kal" : "Cal", next_label(tr));
+}
+static const char* wifi_reason_text(uint32_t reason, bool tr) {
+    /* ESP-IDF wifi_err_reason_t values most often seen on a home router. */
+    switch(reason) {
+    case 0:
+        return "OK";
+    case 201:
+        return tr ? "AP yok" : "No AP";
+    case 2:
+    case 15:
+    case 202:
+    case 204:
+        return tr ? "Sifre?" : "Password?";
+    case 203:
+    case 205:
+        return tr ? "Baglanamadi" : "Conn. fail";
+    case 8:
+        return tr ? "Ayrildi" : "Left";
+    default:
+        return NULL;
+    }
+}
+static const char* cal_error_text(uint32_t error, bool tr) {
+    switch(error) {
+    case 0:
+        return tr ? "Sorun yok" : "OK";
+    case 1:
+        return tr ? "Kesinti" : "Gap";
+    case 2:
+        return tr ? "Gurultulu" : "Noisy";
+    case 3:
+        return tr ? "Hiz dusuk" : "Low rate";
+    default:
+        return "?";
+    }
 }
 static void draw_content(Canvas* c, void* ctx) {
     RadarModel* m = ctx;
@@ -444,12 +630,12 @@ static void draw_content(Canvas* c, void* ctx) {
     bool linked = m->received && recent(m->last_rx, 2000);
     bool fresh = linked && csi_fresh(r->age, milliseconds(furi_get_tick() - m->last_rx));
     const char* en[] = {
-        "LEARNING", "STILL", "MOVING", "CALIBRATE", "NO CSI", "WIFI OFF", "SETUP WIFI"};
+        "LEARNING", "STILL", "MOTION", "CALIBRATE", "NO CSI", "WIFI OFF", "SETUP WIFI"};
     const char* tu[] = {
         "OGRENIYOR", "DURGUN", "HAREKET", "KALIBRE", "CSI YOK", "WIFI YOK", "WIFI KUR"};
     const char* label =
         !m->started ? (m->starting ? (tr ? "KALIBRE" : "CALIBRATING") : (tr ? "HAZIR" : "READY")) :
-        m->alarm_active && fresh ? "ALARM" :
+        m->alarm_active && fresh ? "ALARM!" :
         m->busy                  ? "UART BUSY" :
         !linked                  ? (tr ? "BAGLANTI YOK" : "NO LINK") :
         r->state <= 3 && !fresh  ? (tr ? "CSI YOK" : "NO CSI") :
@@ -461,22 +647,23 @@ static void draw_content(Canvas* c, void* ctx) {
         return;
     }
     const char* title = m->page == 1  ? (tr ? "BAGLANTI" : "CONNECTION") :
-                        m->page == 2  ? "CSI / SAURONLAB" :
-                        m->page == 3  ? (tr ? "KULLANIM" : "CONTROLS") :
-                        m->page == 4  ? (tr ? "OTURUM OZETI" : "SESSION SUMMARY") :
-                        m->page == 5  ? (tr ? "GECMIS / UPTIME" : "HISTORY / UPTIME") :
+                        m->page == 2  ? (tr ? "SURUM" : "VERSION") :
+                        m->page == 3  ? (tr ? "TUSLAR" : "CONTROLS") :
+                        m->page == 4  ? (tr ? "OTURUM" : "SESSION") :
+                        m->page == 5  ? (tr ? "SON HAREKETLER" : "RECENT MOTION") :
                         m->page == 6  ? "WATERFALL" :
-                        m->page == 7  ? (tr ? "OTURUMLAR / A-B" : "SESSIONS / A-B") :
-                        m->page == 12 ? (tr ? "A-B / KAYIT BILGISI" : "A-B / SESSION INFO") :
+                        m->page == 7  ? (tr ? "KAYIT A-B" : "RECORDS A-B") :
+                        m->page == 12 ? (tr ? "A-B DOSYALAR" : "A-B FILES") :
                         m->page == 8  ? (tr ? "KOLAY KURULUM" : "QUICK SETUP") :
                         m->page == 9  ? "ALARM" :
-                        m->page == 10 ? (tr ? "SISTEM KAYNAKLARI" : "SYSTEM RESOURCES") :
-                                        (tr ? "OLCUM TANILARI" : "MEASUREMENT DIAGNOSTICS");
-    small_heading(c, 2, 8, title, true);
-    canvas_draw_line(c, 0, 10, 127, 10);
+                        m->page == 10 ? (tr ? "KAYNAKLAR" : "RESOURCES") :
+                                        (tr ? "TANILAR" : "DIAGNOSTICS");
+    page_title(c, m->page, title);
     char v[4][32] = {{0}};
     const char* labels[4] = {"", "", "", ""};
     char b[64];
+    const char* center = NULL;
+    const char* right = next_label(tr);
     if(m->page == 6) {
         canvas_draw_frame(c, 1, 12, 96, 39);
         canvas_draw_frame(c, 99, 12, 28, 39);
@@ -500,65 +687,75 @@ static void draw_content(Canvas* c, void* ctx) {
                 }
             }
         }
-        draw_text(
-            c,
-            101,
-            21,
-            canvas_string_width(c, "BIN") + canvas_string_width(c, "47") <= 22 ? "BIN" : "N");
+        draw_text(c, 101, 21, "N");
         canvas_draw_str_aligned(c, 125, 21, AlignRight, AlignBottom, "47");
         draw_text(c, 101, 34, "Hz");
         canvas_draw_str_aligned(c, 125, 34, AlignRight, AlignBottom, "4");
         draw_text(c, 101, 47, "s");
         canvas_draw_str_aligned(c, 125, 47, AlignRight, AlignBottom, "4");
-        draw_footer(c, tr, m->page == 6 || m->page == 8);
+        draw_footer(c, tr ? "Kal" : "Cal", right);
         return;
     }
     if(m->page == 4) {
-        labels[0] = tr ? "Hareket olayi" : "Motion starts";
-        labels[1] = tr ? "Gecerli sure" : "Valid time";
-        labels[2] = tr ? "Hareket suresi" : "Moving time";
+        labels[0] = tr ? "Hareket sayisi" : "Motion count";
+        labels[1] = tr ? "Olcum suresi" : "Measured";
+        labels[2] = tr ? "Hareketli sure" : "Moving time";
         labels[3] = tr ? "En yuksek skor" : "Peak score";
         snprintf(v[0], 32, "%lu", (unsigned long)m->session.events);
-        snprintf(v[1], 32, "%lu s", (unsigned long)(m->session.valid_ms / 1000));
-        snprintf(v[2], 32, "%lu s", (unsigned long)(m->session.moving_ms / 1000));
+        format_ago(v[1], 32, m->session.valid_ms, tr);
+        format_ago(v[2], 32, m->session.moving_ms, tr);
         snprintf(
             v[3],
             32,
             "%lu.%03lu",
             (unsigned long)(m->session.peak / 1000),
             (unsigned long)(m->session.peak % 1000));
+        center = tr ? "Sifirla" : "Reset";
     } else if(m->page == 5) {
+        /* Newest first: wall-clock start (RTC) and how long the motion lasted. */
         table_frame(c);
-        canvas_draw_line(c, 17, 12, 17, 50);
-        canvas_draw_line(c, 73, 12, 73, 50);
+        canvas_draw_line(c, 15, 12, 15, 50);
+        canvas_draw_line(c, 72, 12, 72, 50);
+        uint32_t now_ms = milliseconds(furi_get_tick());
+        uint32_t now_ts = furi_hal_rtc_get_timestamp();
         for(unsigned i = 0; i < 4; i++) {
             unsigned y = table_y(i);
             snprintf(b, sizeof(b), "%u", i + 1);
-            center_cell(c, 3, y, 12, b);
+            center_cell(c, 3, y, 11, b);
             if(i < m->session.count) {
                 unsigned idx = (m->session.head + CSI_EVENTS - 1 - i) % CSI_EVENTS;
-                uint32_t sec = m->session.times[idx] / 1000;
+                uint32_t ago = (now_ms - m->session.times[idx]) / 1000;
+                DateTime dt;
+                datetime_timestamp_to_datetime(now_ts - ago, &dt);
                 snprintf(
                     b,
                     sizeof(b),
-                    "%02lu:%02lu:%02lu",
-                    (unsigned long)(sec / 3600),
-                    (unsigned long)(sec / 60 % 60),
-                    (unsigned long)(sec % 60));
-                center_cell(c, 20, y, 50, b);
-                center_cell(c, 77, y, 46, tr ? "Hareket" : "Moving");
+                    "%02u:%02u:%02u",
+                    (unsigned)dt.hour,
+                    (unsigned)dt.minute,
+                    (unsigned)dt.second);
+                center_cell(c, 17, y, 54, b);
+                char d[16];
+                uint32_t ms = m->session.durations[idx];
+                if(ms < 1000)
+                    snprintf(d, sizeof(d), "<1%s", tr ? "sn" : "s");
+                else
+                    format_ago(d, sizeof(d), ms, tr);
+                bool ongoing = i == 0 && m->session.moving;
+                snprintf(b, sizeof(b), "%s%s", d, ongoing ? "+" : "");
+                center_cell(c, 75, y, 49, b);
             } else {
-                center_cell(c, 20, y, 50, "--:--:--");
-                center_cell(c, 77, y, 46, "--");
+                center_cell(c, 17, y, 54, "--:--:--");
+                center_cell(c, 75, y, 49, "--");
             }
         }
-        draw_footer(c, tr, m->page == 6 || m->page == 8);
+        draw_footer(c, tr ? "Sifirla" : "Reset", right);
         return;
     } else if(m->page == 1) {
         labels[0] = tr ? "Sinyal" : "Signal";
         labels[1] = tr ? "Veri kalitesi" : "Data quality";
         labels[2] = tr ? "Ornek hizi" : "Sample rate";
-        labels[3] = tr ? "Filtre / esik" : "Filter / mode";
+        labels[3] = tr ? "Filtre / esik" : "Filter / thr.";
         if(linked && r->rssi < 0)
             snprintf(v[0], 32, "%ld dBm", (long)r->rssi);
         else
@@ -566,16 +763,36 @@ static void draw_content(Canvas* c, void* ctx) {
         snprintf(v[1], 32, "%lu/100", (unsigned long)(fresh ? m->status.quality : 0));
         snprintf(v[2], 32, "%lu Hz", (unsigned long)r->rate);
         snprintf(
-            v[3], 32, "F%lu / %s", (unsigned long)m->perf[3], m->status.automatic ? "AUTO" : "MAN");
+            v[3],
+            32,
+            "%s/%s",
+            m->perf[3] ? (tr ? "Rob" : "Rob") : (tr ? "Klas" : "Clas"),
+            m->status.automatic ? (tr ? "Oto" : "Auto") : (tr ? "Elle" : "Man"));
     } else if(m->page == 11) {
-        labels[0] = tr ? "ESP / UART kayip" : "ESP / UART loss";
-        labels[1] = tr ? "SD / WiFi hata" : "SD / WiFi error";
-        labels[2] = tr ? "Kalibrasyon hata" : "Calibration error";
+        labels[0] = tr ? "Paket kaybi" : "Packet loss";
+        labels[1] = "WiFi";
+        labels[2] = tr ? "Kalibrasyon" : "Calibration";
         labels[3] = tr ? "Gurultu" : "Noise";
         snprintf(v[0], 32, "%lu/%lu", (unsigned long)r->drops, (unsigned long)m->bad_frames);
-        snprintf(v[1], 32, "%lu/%lu", (unsigned long)m->log_lost, (unsigned long)m->status.reason);
-        snprintf(v[2], 32, "%lu", (unsigned long)m->status.cal_error);
-        snprintf(v[3], 32, "%lu", (unsigned long)m->status.noise);
+        const char* reason = wifi_reason_text(m->status.reason, tr);
+        if(!linked)
+            snprintf(v[1], 32, "--");
+        else if(reason)
+            snprintf(v[1], 32, "%s", reason);
+        else
+            snprintf(v[1], 32, tr ? "Kod %lu" : "Code %lu", (unsigned long)m->status.reason);
+        snprintf(v[2], 32, "%s", linked ? cal_error_text(m->status.cal_error, tr) : "--");
+        snprintf(
+            v[3],
+            32,
+            "%lu.%03lu",
+            (unsigned long)(m->status.noise / 1000),
+            (unsigned long)(m->status.noise % 1000));
+        if(m->log_lost) {
+            /* SD loss replaces packet loss only when it happened; both are rare. */
+            labels[0] = tr ? "SD kayip" : "SD lost";
+            snprintf(v[0], 32, "%lu", (unsigned long)m->log_lost);
+        }
     } else if(m->page == 10) {
         labels[0] = "F7 RAM/min";
         labels[1] = "ESP RAM/Q";
@@ -596,7 +813,7 @@ static void draw_content(Canvas* c, void* ctx) {
         labels[1] = "Flipper";
         labels[2] = tr ? "Kart" : "Board";
         labels[3] = "ESP / Link";
-        snprintf(v[0], 32, "2.0 Compact");
+        snprintf(v[0], 32, "2.1 UI");
         snprintf(v[1], 32, "E11 / 87.1");
         snprintf(v[2], 32, "ESP32-S2");
         snprintf(v[3], 32, "P3 / %s", m->hello ? "OK" : "--");
@@ -628,14 +845,13 @@ static void draw_content(Canvas* c, void* ctx) {
                 center_cell(c, 58 + i * 36, y, 29, b);
             }
         }
-
-        draw_footer(c, tr, m->page == 6 || m->page == 8);
+        draw_footer(c, NULL, tr ? "Dosya" : "Files");
         return;
     } else if(m->page == 12) {
         labels[0] = "A / ID";
         labels[1] = "B / ID";
-        labels[2] = tr ? "A filtre/hata" : "A filter/errors";
-        labels[3] = tr ? "B filtre/hata" : "B filter/errors";
+        labels[2] = tr ? "A filtre/hata" : "A filter/err";
+        labels[3] = tr ? "B filtre/hata" : "B filter/err";
         for(unsigned i = 0; i < 2; i++) {
             if(!m->compare_ready[i]) {
                 snprintf(v[i], 32, "--");
@@ -658,47 +874,48 @@ static void draw_content(Canvas* c, void* ctx) {
         }
     } else if(m->page == 9) {
         labels[0] = tr ? "Durum" : "State";
-        labels[1] = tr ? "Baslama" : "Start delay";
-        labels[2] = tr ? "Titresim" : "Vibration";
+        labels[1] = tr ? "Tetiklenme" : "Triggers";
+        labels[2] = tr ? "Titr. / Ses" : "Vibr. / Sound";
         labels[3] = tr ? "Olcum" : "Data";
+        if(!m->alarm_armed)
+            snprintf(v[0], 32, "%s", tr ? "Kapali" : "OFF");
+        else if(m->alarm_active)
+            snprintf(v[0], 32, "%s", tr ? "HAREKET" : "MOTION");
+        else if(m->alarm_wait)
+            snprintf(v[0], 32, tr ? "Kurulur %lus" : "Arms %lus", (unsigned long)m->alarm_wait);
+        else
+            snprintf(v[0], 32, "%s", tr ? "Kurulu" : "Armed");
+        snprintf(v[1], 32, "%lu", (unsigned long)m->alarm_count);
         snprintf(
-            v[0],
+            v[2],
             32,
-            "%s",
-            !m->alarm_armed ? (tr ? "Kapali" : "OFF") :
-            m->alarm_active ? (tr ? "Hareket" : "Motion") :
-                              (tr ? "Acik" : "ON"));
-        snprintf(v[1], 32, "%lu s", (unsigned long)m->alarm_wait);
-        snprintf(v[2], 32, "%s", m->prefs.muted ? (tr ? "Kapali" : "OFF") : (tr ? "Acik" : "ON"));
+            "%s/%s",
+            m->prefs.muted ? (tr ? "Yok" : "Off") : (tr ? "Var" : "On"),
+            m->prefs.alarm_quiet ? (tr ? "Yok" : "Off") : (tr ? "Var" : "On"));
         snprintf(
             v[3],
             32,
             "%s",
             fresh && m->status.quality ? (tr ? "Hazir" : "Ready") : (tr ? "Bekliyor" : "Waiting"));
         draw_rows(c, labels, v);
-        canvas_draw_line(c, 0, 56, 127, 56);
-        draw_cell(
+        draw_footer(
             c,
-            1,
-            64,
-            125,
-            m->toast[0] && recent(m->toast_tick, 2200) ? m->toast :
-            m->alarm_armed ? (tr ? "OK: Kapat  >:Titresim" : "OK: OFF  >:Vibration") :
-                             (tr ? "OK: Ac  >:Titresim" : "OK: ON  >:Vibration"));
+            m->alarm_armed ? (tr ? "Kapat" : "Disarm") : (tr ? "Kur" : "Arm"),
+            tr ? "Titr." : "Vibr.");
         return;
     } else {
         const char* help_tr[] = {
-            "< Menu   > Ekran degistir",
-            "OK: kalibrasyonu baslat",
+            "< Menu      > Sonraki ekran",
+            "OK: kalibre et",
+            "Yukari/Asagi: esik",
             "Uzun >: titresim ac/kapat",
-            "Sabit koy, ogrenmeyi bekle",
-            "Alarm: Menu > Alarm"};
+            "Geri: ana ekran / cikis"};
         const char* help_en[] = {
-            "< Menu   > Next screen",
-            "OK: start calibration",
-            "Hold >: vibration toggle",
-            "Place still, wait for learning",
-            "Alarm: Menu > Alarm"};
+            "< Menu      > Next screen",
+            "OK: calibrate",
+            "Up/Down: threshold",
+            "Hold >: vibration on/off",
+            "Back: dashboard / exit"};
         const char* setup_tr[] = {
             "1  Menu > WiFi kurulumu",
             "2  Cihazi sabit yerlestir",
@@ -718,16 +935,27 @@ static void draw_content(Canvas* c, void* ctx) {
                 18 + i * 8,
                 122,
                 m->page == 8 ? (tr ? setup_tr[i] : setup_en[i]) : (tr ? help_tr[i] : help_en[i]));
-        draw_footer(c, tr, m->page == 6 || m->page == 8);
+        draw_footer(c, m->page == 8 ? (tr ? "Kal" : "Cal") : NULL, right);
         return;
     }
     draw_rows(c, labels, v);
-    draw_footer(c, tr, m->page == 6 || m->page == 8);
+    draw_footer(c, center, right);
+}
+/* Toasts on secondary screens float above the table so no row is hidden for long. */
+static void draw_toast_overlay(Canvas* c, RadarModel* m) {
+    if(m->page == 0 || !m->toast[0] || !recent(m->toast_tick, 2200)) return;
+    canvas_set_font(c, FontSecondary);
+    canvas_set_color(c, ColorWhite);
+    canvas_draw_box(c, 4, 22, 120, 15);
+    canvas_set_color(c, ColorBlack);
+    canvas_draw_rframe(c, 4, 22, 120, 15, 2);
+    center_cell(c, 6, 33, 116, m->toast);
 }
 static void draw(Canvas* c, void* ctx) {
     uint32_t start = furi_get_tick();
     draw_content(c, ctx);
     RadarModel* m = ctx;
+    draw_toast_overlay(c, m);
     uint32_t elapsed = milliseconds(furi_get_tick() - start);
     if(elapsed > m->draw_max_ms) m->draw_max_ms = elapsed;
 }
@@ -881,7 +1109,6 @@ static void show_settings(RadarApp* a) {
     menu_item(a, "WiFi setup", "WiFi kurulumu", 1);
     menu_item(a, "Recording / sessions", "Kayitlar", 61);
     menu_item(a, "Measurement settings", "Olcum ayarlari", 60);
-    menu_item(a, "Analysis screens", "Analiz ekranlari", 64);
     menu_item(a, "Help / information", "Yardim / bilgi", 62);
     menu_open(a);
 }
@@ -889,18 +1116,22 @@ static void measurements_menu(RadarApp* a) {
     menu_begin(a, "MEASUREMENT", "OLCUM AYARLARI", 5);
     menu_item(a, "Calibrate - stay still", "Kalibre et - sabit kal", 0);
     menu_item(a, "Sensitivity profiles", "Hassasiyet profili", 2);
-    menu_item(
-        a,
-        a->settings.automatic ? "Threshold: automatic" : "Threshold: manual",
-        a->settings.automatic ? "Esik: otomatik" : "Esik: elle",
-        3);
+    char label[40];
+    snprintf(
+        label,
+        sizeof(label),
+        "%s %u.%03u",
+        a->settings.automatic ? tr(a, "Threshold: auto", "Esik: oto") :
+                                tr(a, "Threshold: manual", "Esik: elle"),
+        a->settings.threshold / 1000,
+        a->settings.threshold % 1000);
+    submenu_add_item(a->menu, label, 3, menu_callback, a);
     menu_item(
         a,
         a->ultimate.filter ? "Filter: robust" : "Filter: classic",
         a->ultimate.filter ? "Filtre: dayanikli" : "Filtre: klasik",
         13);
     menu_item(a, "Save threshold to board", "Esigi karta kaydet", 8);
-    menu_item(a, "Type WiFi name manually", "WiFi adini elle gir", 9);
     menu_open(a);
 }
 static void records_menu(RadarApp* a) {
@@ -943,13 +1174,24 @@ static void alarm_menu(RadarApp* a) {
         a->alarm.armed ? "Turn alarm OFF" : "Turn alarm ON",
         a->alarm.armed ? "Alarmi kapat" : "Alarmi ac",
         40);
-    menu_item(a, "Show alarm status", "Alarm durumunu goster", 46);
+    menu_item(a, "Alarm panel", "Alarm paneli", 46);
     menu_item(
         a,
         a->settings.muted ? "Vibration: OFF" : "Vibration: ON",
         a->settings.muted ? "Titresim: kapali" : "Titresim: acik",
         47);
-    menu_item(a, "Test vibration / LED", "Titresimi dene", 45);
+    menu_item(
+        a,
+        a->settings.quiet_motion ? "Motion notify: OFF" : "Motion notify: ON",
+        a->settings.quiet_motion ? "Hareket bildirimi: kapali" :
+                                   "Hareket bildirimi: acik",
+        49);
+    menu_item(
+        a,
+        a->settings.alarm_quiet ? "Alarm sound: OFF" : "Alarm sound: ON",
+        a->settings.alarm_quiet ? "Alarm sesi: kapali" : "Alarm sesi: acik",
+        38);
+    menu_item(a, "Test alarm", "Alarmi dene", 45);
     menu_item(a, "Timing settings", "Sure ayarlari", 48);
     menu_open(a);
 }
@@ -1002,6 +1244,8 @@ static bool toggle_alarm(RadarApp* a) {
         return false;
     }
     memset(&a->alarm, 0, sizeof(a->alarm));
+    a->alarm_count = 0;
+    a->alarm_was_active = false;
     a->alarm.armed = true;
     a->alarm.armed_at = milliseconds(furi_get_tick());
     return true;
@@ -1187,7 +1431,7 @@ static bool custom_event(void* ctx, uint32_t event) {
             a->settings = s;
             mark_settings(a);
             dashboard(a, 0);
-        } else if(configure(a, &s))
+        } else if(configure(a, &s, false))
             dashboard(a, 0);
     } else if(i == 4) {
         if(!a->logging && !a->started) {
@@ -1270,8 +1514,12 @@ static bool custom_event(void* ctx, uint32_t event) {
             mark_settings(a);
         }
         if(i == 45) {
-            notification_message(a->notifications, &sequence_single_vibro);
-            notification_message(a->notifications, &sequence_blink_blue_100);
+            /* Same output as a real trigger, honouring vibration/sound settings. */
+            notification_message(a->notifications, &sequence_blink_red_100);
+            if(!a->settings.muted)
+                notification_message(a->notifications, &sequence_double_vibro);
+            if(!a->settings.alarm_quiet)
+                notification_message(a->notifications, &sequence_alarm_sound);
         }
         if(i >= 41 && i <= 44) {
             memset(&a->alarm, 0, sizeof(a->alarm));
@@ -1286,6 +1534,16 @@ static bool custom_event(void* ctx, uint32_t event) {
             alarm_menu(a);
             submenu_set_selected_item(a->menu, i);
         }
+    } else if(i == 38) {
+        a->settings.alarm_quiet = !a->settings.alarm_quiet;
+        mark_settings(a);
+        alarm_menu(a);
+        submenu_set_selected_item(a->menu, 38);
+    } else if(i == 49) {
+        a->settings.quiet_motion = !a->settings.quiet_motion;
+        mark_settings(a);
+        alarm_menu(a);
+        submenu_set_selected_item(a->menu, 49);
     } else if(i == 50) {
         a->compare_slot ^= 1;
         sessions_menu(a);
@@ -1322,7 +1580,7 @@ static bool custom_event(void* ctx, uint32_t event) {
             a->settings = s;
             mark_settings(a);
             dashboard(a, 0);
-        } else if(configure(a, &s))
+        } else if(configure(a, &s, false))
             dashboard(a, 0);
     } else if(i >= 100 && i < 100 + CSI_AP_MAX) {
         RadarModel m;
@@ -1387,16 +1645,14 @@ static bool input(InputEvent* e, void* ctx) {
         if(m.page == 9) {
             a->settings.muted = !a->settings.muted;
             mark_settings(a);
-        } else
+        } else {
+            int index = cycle_index(m.page);
             dashboard(
                 a,
-                m.page == 0  ? 6 :
-                m.page == 6  ? 1 :
-                m.page == 1  ? 11 :
-                m.page == 11 ? 4 :
-                m.page == 7  ? 12 :
-                m.page == 4  ? 5 :
-                               0);
+                index >= 0  ? cycle_pages[(index + 1) % CYCLE_COUNT] :
+                m.page == 7 ? 12 :
+                              0);
+        }
     } else if(e->key == InputKeyOk && e->type == InputTypeShort) {
         RadarModel m;
         snapshot(a, &m);
@@ -1405,8 +1661,17 @@ static bool input(InputEvent* e, void* ctx) {
         else if(m.page == 0 || m.page == 6 || m.page == 8) {
             request_calibration(a);
             dashboard(a, 0);
-        } else
-            show_settings(a);
+        } else if(m.page == 4 || m.page == 5) {
+            with_view_model(
+                a->radar, RadarModel * v, { memset(&v->session, 0, sizeof(v->session)); }, true);
+            CsiSession empty;
+            memset(&empty, 0, sizeof(empty));
+            csi_storage_session_save(a->storage, &empty);
+            a->saved_events = a->saved_valid_ms = 0;
+            a->session_tick = furi_get_tick();
+            toast(a, tr(a, "Session reset", "Oturum sifirlandi"));
+        } else if(m.page == 7)
+            dashboard(a, 12);
     } else if(e->key == InputKeyUp || e->key == InputKeyDown) {
         RadarModel m;
         snapshot(a, &m);
@@ -1484,11 +1749,23 @@ static void response(RadarApp* a, const char* p) {
             if(!strcmp(a->pending, "CFG")) a->synced = true;
             if(!strcmp(a->pending, "FILT")) a->filter_synced = true;
             if(!strcmp(a->pending, "WF")) a->wave_enabled = a->wave_target;
-            toast(
-                a,
-                !strcmp(a->pending, "CAL") ?
-                    tr(a, "Stay still: calibrating", "Hareketsiz kalin: kalibre") :
-                    tr(a, "ESP32 confirmed", "ESP32 onayladi"));
+            char note[32];
+            if(!strcmp(a->pending, "THR"))
+                snprintf(
+                    note,
+                    sizeof(note),
+                    tr(a, "Threshold %u.%03u manual", "Esik %u.%03u (elle)"),
+                    a->settings.threshold / 1000,
+                    a->settings.threshold % 1000);
+            else
+                snprintf(
+                    note,
+                    sizeof(note),
+                    "%s",
+                    !strcmp(a->pending, "CAL") ?
+                        tr(a, "Stay still: calibrating", "Hareketsiz kalin: kalibre") :
+                        tr(a, "ESP32 confirmed", "ESP32 onayladi"));
+            if(!a->quiet) toast(a, note);
             a->pending[0] = 0;
         }
     }
@@ -1526,20 +1803,21 @@ static void tick(void* ctx) {
     }
     if(a->start_requested && ready(&m) && !a->synced && a->sync_attempts < 3 && !a->pending[0] &&
        !a->editing) {
-        if(configure(a, &a->settings)) a->sync_attempts++;
+        if(configure(a, &a->settings, true)) a->sync_attempts++;
     }
     if((a->started || a->start_requested) && ready(&m) && a->synced && !a->pending[0] &&
        !a->filter_synced) {
         char cmd[16];
         snprintf(cmd, sizeof(cmd), "FILT %u", a->ultimate.filter);
-        send_command(a, cmd, "FILT");
+        send_command_ex(a, cmd, "FILT", true);
     }
     if(a->start_requested && ready(&m) && a->synced && a->filter_synced && !a->pending[0])
         send_command(a, "CAL 100", "CAL");
     bool want_wave = a->started && m.page == 6;
     if(ready(&m) && a->synced && a->filter_synced && !a->pending[0] &&
        want_wave != a->wave_enabled) {
-        if(send_command(a, want_wave ? "WF 1" : "WF 0", "WF")) a->wave_target = want_wave;
+        if(send_command_ex(a, want_wave ? "WF 1" : "WF 0", "WF", true))
+            a->wave_target = want_wave;
     }
     if(a->browsing) {
         csi_storage_catalog(a->storage, a->catalog);
@@ -1560,10 +1838,26 @@ static void tick(void* ctx) {
         milliseconds(furi_get_tick()),
         fresh && m.status.quality > 0,
         moving);
-    if((alarm_notify || (!a->alarm.armed && moving && !a->was_moving)) && !a->settings.muted &&
-       !a->editing) {
-        notification_message(a->notifications, &sequence_single_vibro);
-        notification_message(a->notifications, &sequence_blink_blue_100);
+    if(moving) {
+        a->last_motion_ms = milliseconds(furi_get_tick());
+        a->seen_motion = true;
+    }
+    if(a->alarm.armed && a->alarm.active && !a->alarm_was_active) a->alarm_count++;
+    a->alarm_was_active = a->alarm.active;
+    if(!a->editing) {
+        if(alarm_notify) {
+            /* Armed alarm: distinct red LED always; vibration unless muted (silent mode). */
+            notification_message(a->notifications, &sequence_blink_red_100);
+            if(!a->settings.muted)
+                notification_message(a->notifications, &sequence_double_vibro);
+            if(!a->settings.alarm_quiet)
+                notification_message(a->notifications, &sequence_alarm_sound);
+        } else if(
+            !a->alarm.armed && moving && !a->was_moving && !a->settings.muted &&
+            !a->settings.quiet_motion) {
+            notification_message(a->notifications, &sequence_single_vibro);
+            notification_message(a->notifications, &sequence_blink_blue_100);
+        }
     }
     a->was_moving = moving;
     if(a->pending[0] && !recent(a->sent_tick, 4000)) {
@@ -1579,6 +1873,16 @@ static void tick(void* ctx) {
     }
     if(a->dirty && !recent(a->dirty_tick, 500)) {
         if(csi_storage_settings(a->storage, &a->settings)) a->dirty = false;
+    }
+    if(!recent(a->session_tick, 30000)) {
+        /* Save the running session every 30 s, only when it changed. */
+        if(m.session.events != a->saved_events || m.session.valid_ms != a->saved_valid_ms) {
+            if(csi_storage_session_save(a->storage, &m.session)) {
+                a->saved_events = m.session.events;
+                a->saved_valid_ms = m.session.valid_ms;
+            }
+        }
+        a->session_tick = furi_get_tick();
     }
     if(a->logging && (!recent(a->last_log, 1000) || m.report.state != a->log_previous)) {
         CsiReport record = m.report;
@@ -1621,6 +1925,8 @@ static void tick(void* ctx) {
                                 (delays[a->ultimate.delay] - passed + 999) / 1000 :
                                 0;
             v->alarm_armed = a->alarm.armed;
+            v->alarm_count = a->alarm_count;
+            v->last_motion_ms = a->seen_motion ? a->last_motion_ms : UINT32_MAX;
             v->alarm_active = a->alarm.active;
             v->prefs = a->settings;
             v->log_state = log_state;
@@ -1640,6 +1946,11 @@ int32_t csi_radar_app(void* context) {
     furi_check(a->catalog);
     memset(a->catalog, 0, sizeof(CsiCatalog));
     csi_storage_ultimate_load(&a->ultimate);
+    CsiSession restored;
+    bool session_restored = csi_storage_session_load(&restored);
+    a->saved_events = restored.events;
+    a->saved_valid_ms = restored.valid_ms;
+    a->session_tick = furi_get_tick();
     a->loaded = csi_storage_load(&a->settings);
     a->storage = csi_storage_alloc();
     a->log_previous = -1;
@@ -1676,6 +1987,7 @@ int32_t csi_radar_app(void* context) {
         {
             m->busy = a->serial == NULL;
             m->prefs = a->settings;
+            m->session = restored;
         },
         false);
     a->worker = furi_thread_alloc_ex("CsiRadarRx", 3072, worker, a);
@@ -1687,6 +1999,8 @@ int32_t csi_radar_app(void* context) {
     notification_message(a->notifications, &sequence_display_backlight_enforce_on);
     furi_hal_power_insomnia_enter();
     if(!a->loaded) dashboard(a, 8);
+    if(session_restored && restored.events)
+        toast(a, tr(a, "Previous session loaded", "Onceki oturum yuklendi"));
     view_dispatcher_switch_to_view(a->dispatcher, VIEW_RADAR);
     view_dispatcher_run(a->dispatcher);
     if(a->serial) furi_hal_serial_async_rx_stop(a->serial);
@@ -1699,6 +2013,12 @@ int32_t csi_radar_app(void* context) {
         csi_storage_log(a->storage, 2, &m.report, &m.status, m.perf[3]);
     }
     if(a->dirty) csi_storage_settings(a->storage, &a->settings);
+    {
+        RadarModel m;
+        snapshot(a, &m);
+        if(m.session.events != a->saved_events || m.session.valid_ms != a->saved_valid_ms)
+            csi_storage_session_save(a->storage, &m.session);
+    }
     csi_storage_free(a->storage);
     if(a->serial) {
         furi_hal_serial_tx_wait_complete(a->serial);

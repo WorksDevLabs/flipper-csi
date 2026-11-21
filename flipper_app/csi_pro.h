@@ -7,6 +7,10 @@ typedef struct {
     uint16_t threshold, custom_threshold;
     uint8_t profile, language;
     bool muted, automatic;
+    /* 2.1: true = no vibration on motion while the alarm is not armed. */
+    bool quiet_motion;
+    /* 2.1: true = armed alarm does not beep (vibration/LED unchanged). */
+    bool alarm_quiet;
 } CsiSettings;
 typedef struct {
     uint32_t automatic, noise, quality, reason, cal_error, calibrated;

@@ -13,7 +13,8 @@ void csi_settings_encode(const CsiSettings* s, uint8_t b[CSI_SETTINGS_SIZE]) {
     b[5] = (uint8_t)(s->threshold >> 8);
     b[6] = s->profile;
     b[7] = s->language;
-    b[8] = (s->muted ? 1 : 0) | (s->automatic ? 2 : 0);
+    b[8] = (s->muted ? 1 : 0) | (s->automatic ? 2 : 0) | (s->quiet_motion ? 4 : 0) |
+           (s->alarm_quiet ? 8 : 0);
     b[10] = (uint8_t)s->custom_threshold;
     b[11] = (uint8_t)(s->custom_threshold >> 8);
     uint16_t crc = csi_crc16((const char*)b, 12);
@@ -21,7 +22,7 @@ void csi_settings_encode(const CsiSettings* s, uint8_t b[CSI_SETTINGS_SIZE]) {
     b[13] = (uint8_t)(crc >> 8);
 }
 bool csi_settings_decode(CsiSettings* s, const uint8_t* b, size_t n) {
-    if(!b || n != CSI_SETTINGS_SIZE || memcmp(b, "CSP\2", 4) || b[6] > 3 || b[7] > 1 || b[8] > 3 ||
+    if(!b || n != CSI_SETTINGS_SIZE || memcmp(b, "CSP\2", 4) || b[6] > 3 || b[7] > 1 || b[8] > 15 ||
        b[9])
         return false;
     if(csi_crc16((const char*)b, 12) != (uint16_t)(b[12] | (uint16_t)b[13] << 8)) return false;
@@ -35,7 +36,9 @@ bool csi_settings_decode(CsiSettings* s, const uint8_t* b, size_t n) {
         .profile = b[6],
         .language = b[7],
         .muted = (b[8] & 1) != 0,
-        .automatic = (b[8] & 2) != 0};
+        .automatic = (b[8] & 2) != 0,
+        .quiet_motion = (b[8] & 4) != 0,
+        .alarm_quiet = (b[8] & 8) != 0};
     return true;
 }
 static bool field(const char** p, char* out, size_t cap, bool last) {

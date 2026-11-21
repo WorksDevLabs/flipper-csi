@@ -12,10 +12,15 @@
 typedef struct {
     unsigned kind, filter;
     uint32_t stamp, tick;
-    CsiUltimatePrefs ultimate;
-    CsiSettings settings;
-    CsiReport report;
-    CsiStatus status;
+    union {
+        CsiUltimatePrefs ultimate;
+        CsiSettings settings;
+        struct {
+            CsiReport report;
+            CsiStatus status;
+        };
+        uint8_t session[CSI_SESSION_BYTES];
+    };
 } Record;
 struct CsiStorage {
     FuriMutex* mutex;
@@ -23,7 +28,7 @@ struct CsiStorage {
     FuriMessageQueue* queue;
     FuriThread* thread;
     atomic_uint state, lost;
-    atomic_bool settings_error, ultimate_error;
+    atomic_bool settings_error, ultimate_error, session_error;
 };
 static bool read_settings(Storage* s, const char* name, CsiSettings* settings) {
     File* f = storage_file_alloc(s);
@@ -130,6 +135,47 @@ bool csi_storage_ultimate_load(CsiUltimatePrefs* p) {
     bool ok = ultimate_io(s, p, false);
     furi_record_close(RECORD_STORAGE);
     if(!ok) csi_ultimate_default(p);
+    return ok;
+}
+/* Same tmp -> bin, old bin -> bak rotation as the other preference files. */
+static bool session_write(Storage* s, const uint8_t bytes[CSI_SESSION_BYTES]) {
+    if(!storage_simply_mkdir(s, DATA)) return false;
+    File* f = storage_file_alloc(s);
+    bool ok = storage_file_open(f, DATA "/session.tmp", FSAM_WRITE, FSOM_CREATE_ALWAYS) &&
+              storage_file_write(f, bytes, CSI_SESSION_BYTES) == CSI_SESSION_BYTES &&
+              storage_file_sync(f);
+    storage_file_close(f);
+    storage_file_free(f);
+    if(!ok) return false;
+    storage_common_remove(s, DATA "/session.bak");
+    if(storage_file_exists(s, DATA "/session.bin") &&
+       storage_common_rename(s, DATA "/session.bin", DATA "/session.bak") != FSE_OK)
+        return false;
+    if(storage_common_rename(s, DATA "/session.tmp", DATA "/session.bin") != FSE_OK) {
+        (void)storage_common_rename(s, DATA "/session.bak", DATA "/session.bin");
+        return false;
+    }
+    return true;
+}
+bool csi_storage_session_load(CsiSession* session) {
+    memset(session, 0, sizeof(*session));
+    Storage* s = furi_record_open(RECORD_STORAGE);
+    File* f = storage_file_alloc(s);
+    uint8_t bytes[CSI_SESSION_BYTES];
+    uint32_t now_ms =
+        (uint32_t)((uint64_t)furi_get_tick() * 1000 / furi_kernel_get_tick_frequency());
+    uint32_t now_ts = furi_hal_rtc_get_timestamp();
+    const char* names[] = {DATA "/session.bin", DATA "/session.bak"};
+    bool ok = false;
+    for(unsigned i = 0; i < 2 && !ok; i++) {
+        if(storage_file_open(f, names[i], FSAM_READ, FSOM_OPEN_EXISTING))
+            ok = storage_file_size(f) == sizeof(bytes) &&
+                 storage_file_read(f, bytes, sizeof(bytes)) == sizeof(bytes) &&
+                 csi_session_decode(session, bytes, sizeof(bytes), now_ms, now_ts);
+        storage_file_close(f);
+    }
+    storage_file_free(f);
+    furi_record_close(RECORD_STORAGE);
     return ok;
 }
 static void build_catalog(Storage* s, CsiCatalog* catalog) {
@@ -243,6 +289,10 @@ static int32_t storage_worker(void* ctx) {
             atomic_store(&a->ultimate_error, !ultimate_io(s, &r.ultimate, true));
             continue;
         }
+        if(r.kind == 7) {
+            atomic_store(&a->session_error, !session_write(s, r.session));
+            continue;
+        }
         if(r.kind == 5) {
             CsiCatalog* catalog = malloc(sizeof(CsiCatalog));
             furi_check(catalog);
@@ -329,6 +379,7 @@ CsiStorage* csi_storage_alloc(void) {
     atomic_init(&a->lost, 0);
     atomic_init(&a->settings_error, false);
     atomic_init(&a->ultimate_error, false);
+    atomic_init(&a->session_error, false);
     a->queue = furi_message_queue_alloc(32, sizeof(Record));
     a->thread = furi_thread_alloc_ex("CsiSd", 4096, storage_worker, a);
     furi_thread_start(a->thread);
@@ -380,7 +431,8 @@ uint32_t csi_storage_lost(CsiStorage* a) {
     return atomic_load(&a->lost);
 }
 bool csi_storage_settings_error(CsiStorage* a) {
-    return atomic_load(&a->settings_error) || atomic_load(&a->ultimate_error);
+    return atomic_load(&a->settings_error) || atomic_load(&a->ultimate_error) ||
+           atomic_load(&a->session_error);
 }
 
 bool csi_storage_catalog_request(CsiStorage* a) {
@@ -408,5 +460,12 @@ void csi_storage_catalog(CsiStorage* a, CsiCatalog* out) {
 bool csi_storage_ultimate_save(CsiStorage* a, const CsiUltimatePrefs* p) {
     if(!csi_ultimate_valid(p)) return false;
     Record r = {.kind = 6, .ultimate = *p};
+    return enqueue(a, &r);
+}
+bool csi_storage_session_save(CsiStorage* a, const CsiSession* session) {
+    Record r = {.kind = 7};
+    uint32_t now_ms =
+        (uint32_t)((uint64_t)furi_get_tick() * 1000 / furi_kernel_get_tick_frequency());
+    csi_session_encode(session, now_ms, furi_hal_rtc_get_timestamp(), r.session);
     return enqueue(a, &r);
 }
