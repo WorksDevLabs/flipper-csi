@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1 — UI update (FAP only)
+
+- Dashboard banner (STILL / MOTION, inverted while moving, flashing on alarm), score bar with threshold marker.
+- Setup checklist (board, Wi-Fi, CSI, calibration) with next-step hint; calibration progress bar.
+- Page numbers, consistent footer buttons, toast overlay; shorter labels that fit 128x64.
+- Recent motion with RTC clock time and per-event duration; decoded Wi-Fi/calibration diagnostics.
+- Session totals and last 8 events persisted to `session.bin` (+ `.bak`, CRC16); restored on start.
+- Armed alarm sound (~2.5 s, optional), red LED and double vibration; unarmed motion notify is a separate setting.
+- Internal ESP commands no longer show "Sending / confirmed" toasts.
+- Settings flags: bit 2 motion notify off, bit 3 alarm sound off; 2.0 files decode unchanged.
+- New host tests: event durations, session encode/decode (reboot, corruption, RTC rollback), settings bits.
+
 ## 2.0.0 — Ultimate
 
 - Optional robust carrier median/MAD + temporal filtering; Classic retained.

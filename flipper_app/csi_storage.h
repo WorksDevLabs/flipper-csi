@@ -1,6 +1,7 @@
 #pragma once
 #include <furi.h>
 #include "csi_pro.h"
+#include "csi_session.h"
 typedef struct CsiStorage CsiStorage;
 /* Startup-only read, before the UI and RX worker run. CRC + backup recovery. */
 bool csi_storage_load(CsiSettings* settings);
@@ -24,3 +25,6 @@ bool csi_storage_catalog_request(CsiStorage* storage);
 void csi_storage_catalog(CsiStorage* storage, CsiCatalog* out);
 bool csi_storage_ultimate_load(CsiUltimatePrefs* prefs);
 bool csi_storage_ultimate_save(CsiStorage* storage, const CsiUltimatePrefs* prefs);
+/* 2.1 session persistence: startup-only load, queued save (session.bin + .bak). */
+bool csi_storage_session_load(CsiSession* session);
+bool csi_storage_session_save(CsiStorage* storage, const CsiSession* session);

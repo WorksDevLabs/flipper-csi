@@ -1,74 +1,118 @@
 # CSI Radar Ultimate
 
-**Wi-Fi CSI motion monitoring for Flipper Zero.**  
-Built for E11-patched Momentum · API 87.1 · Official ESP32-S2 Wi-Fi Devboard
+**Wi-Fi CSI motion monitoring for Flipper Zero.**
+E11-patched Momentum · API 87.1 · Official ESP32-S2 Wi-Fi Devboard
 
-[**Download v2.0.0**](https://github.com/sehmusadsoy-ui/flipper-csi/releases/tag/v2.0.0) · [Türkçe rehber](docs/INSTALL_TR.md) · [English guide](docs/INSTALL_EN.md) · [Roadmap](ROADMAP.md)
+[![CI](https://github.com/sehmusadsoy-ui/flipper-csi/actions/workflows/ci.yml/badge.svg)](https://github.com/sehmusadsoy-ui/flipper-csi/actions/workflows/ci.yml)
+![Version](https://img.shields.io/badge/version-2.1-orange)
+![Flipper API](https://img.shields.io/badge/Flipper%20API-87.1-black)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
-Monitor changes in Wi-Fi channel state information on your Flipper: a live motion
-score, carrier waterfall and session history, with manual calibration and optional
-vibration alerts. Ultimate is the final feature milestone of the Core → Pro →
-Ultimate plan.
+[Install (EN)](docs/INSTALL_EN.md) · [Kurulum (TR)](docs/INSTALL_TR.md) · [2.1 UI notes (TR)](docs/UI_2_1_TR.md) · [Protocol](PROTOCOL.md) · [Changelog](CHANGELOG.md)
 
-## On the device
+An ESP32-S2 listens to your router's Wi-Fi channel state information (CSI) and
+turns it into a motion score. The Flipper shows that score live, raises an
+optional alarm and keeps a session history on the SD card.
 
-| Screen | Purpose |
+<p align="center">
+  <img src="docs/screenshots/v2.1/live-motion.png" width="384" alt="Live dashboard while motion is detected">
+  <img src="docs/screenshots/v2.1/live-still.png" width="384" alt="Live dashboard while the room is still">
+</p>
+
+## What's new in 2.1
+
+| | |
 | --- | --- |
-| Ready | Place the device still, then press OK to calibrate |
-| Live graph | Follow the motion score, threshold and signal level |
-| Waterfall | View changes across Wi-Fi carriers over time |
-| Connection | Check signal strength, data quality and sample rate |
-| Session summary | Review motion starts, recording time and peak score |
-| Event history | Review recent motion events |
+| **At-a-glance dashboard** | Large STILL / MOTION banner, inverted while moving and flashing on alarm; score bar with threshold marker |
+| **Setup checklist** | Board → Wi-Fi → CSI → Calibrated, with the next step spelled out; progress bar while calibrating |
+| **Clearer navigation** | Page numbers (2/6 … 6/6), consistent buttons, center button only when it does something |
+| **Recent motion** | Real RTC clock time and duration of each event |
+| **Readable diagnostics** | Wi-Fi and calibration codes decoded to text ("Password?", "No AP", "Noisy") |
+| **Session saved to SD** | Totals and last 8 events survive closing the app and rebooting the Flipper |
+| **Alarm sound** | ~2.5 s rising tone on trigger, plus red LED and double vibration; can be turned off |
+| **Motion notify vs. alarm** | Unarmed motion buzz is now its own setting, separate from the armed alarm |
 
-## Features
+FAP-only update: ESP firmware, protocol 3 and the partition map are unchanged.
+2.0 settings files are read as-is.
 
-| Area | Included in 2.0 |
+## Screens
+
+| | | |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/v2.1/setup-checklist.png" width="256"><br>Setup checklist | <img src="docs/screenshots/v2.1/calibrating.png" width="256"><br>Calibration | <img src="docs/screenshots/v2.1/waterfall.png" width="256"><br>47-carrier waterfall |
+| <img src="docs/screenshots/v2.1/connection.png" width="256"><br>Connection | <img src="docs/screenshots/v2.1/diagnostics.png" width="256"><br>Diagnostics | <img src="docs/screenshots/v2.1/session.png" width="256"><br>Session (restored from SD) |
+| <img src="docs/screenshots/v2.1/recent-motion.png" width="256"><br>Recent motion | <img src="docs/screenshots/v2.1/alarm-armed.png" width="256"><br>Alarm armed | <img src="docs/screenshots/v2.1/alarm-panel.png" width="256"><br>Alarm panel |
+
+All screenshots are captured from a real Flipper Zero with live CSI data.
+Turkish and English UI are both built in (Menu → Help → Language).
+
+## Controls
+
+| Key | Action |
 | --- | --- |
-| Live monitoring | Motion/still states, framed 10-second score graph, adjustable threshold and 47-carrier waterfall |
-| Calibration & filtering | Explicit manual start, Classic/Robust filters, manual or noise-based automatic threshold |
-| Everyday use | Wi-Fi setup with masked password, profiles, saved mute/language/settings and backlight held on while open |
-| Alerts | Vibration/LED, mute and explicitly armed alarm with grace/hold/release/repeat settings |
-| Recording | Queued SD CSV sessions, session selection, A/B summaries and event history |
-| PC tools | Offline HTML reports, raw-capture waterfall and filter comparison |
+| **Left** | Menu |
+| **Right** | Next screen · hold: vibration on/off |
+| **OK** | Calibrate (live / waterfall) · Reset (session / history) · Arm/Disarm (alarm panel) |
+| **Up / Down** | Adjust threshold (switches to manual) |
+| **Back** | Back to dashboard · exit |
 
-## Get started
+## Motion notify vs. alarm
 
-1. Download the [full v2.0.0 package](https://github.com/sehmusadsoy-ui/flipper-csi/releases/download/v2.0.0/flipper-csi-v2.0.0.zip) and [SHA256 checksums](https://github.com/sehmusadsoy-ui/flipper-csi/releases/download/v2.0.0/SHA256SUMS.txt).
-2. Keep your E11 system firmware. The supplied FAP targets **API 87.1**.
-3. First install or upgrade from 1.0/1.5: flash the three ESP binaries from `ready/` using the [installation guide](docs/INSTALL_EN.md).
-4. Copy [`csi_radar.fap`](https://github.com/sehmusadsoy-ui/flipper-csi/releases/download/v2.0.0/csi_radar.fap) to `/ext/apps/GPIO/csi_radar.fap` using qFlipper while the application is closed.
-5. Open CSI Radar, place the device still, then press **OK** to calibrate.
+| | Motion notify (unarmed) | Alarm (armed) |
+| --- | --- | --- |
+| Fires | As soon as the score crosses the threshold | Only after motion lasts the hold time (default 0.5 s) |
+| Start delay | none | 0 / 5 / 15 s to leave the room |
+| Ongoing motion | once | repeats every 10 / 30 s (or once) |
+| Output | single vibration, blue LED | double vibration, red LED, sound, flashing banner, trigger count |
 
-Already running protocol-3 2.0? The FAP can be updated alone. The final ESP rebuild
-only corrects startup version text; reflashing an existing working 2.0 ESP is optional.
+## Install
 
-**Türkçe:** [Kurulum, Wi-Fi ayarı, menüler ve kullanım](docs/INSTALL_TR.md).
+1. Keep your E11 system firmware. The FAP targets **API 87.1**.
+2. **First install or upgrade from 1.x:** flash the three ESP binaries from
+   [`ready/`](ready/) as described in the [installation guide](docs/INSTALL_EN.md).
+   Coming from 2.0, the ESP does not need to be reflashed.
+3. With the app closed, copy [`ready/csi_radar.fap`](ready/csi_radar.fap) to
+   `/ext/apps/GPIO/csi_radar.fap` using qFlipper.
+4. Open **Apps → GPIO → CSI Radar Ultimate**, set up Wi-Fi from the menu, place the
+   device still and press **OK** to calibrate.
 
-## Compatibility & validation
+Check files against [`SHA256SUMS.txt`](SHA256SUMS.txt). The previous release is
+[v2.0.0](https://github.com/sehmusadsoy-ui/flipper-csi/releases/tag/v2.0.0).
 
-The supplied build is scoped to **E11-patched Momentum / API 87.1** and the
-**official ESP32-S2 Wi-Fi Devboard**. Other firmware versions or boards need their
-own build and validation.
+## Limits
 
-Local FAP/ESP builds, C regressions, eight Python tests and ASan/UBSan are recorded
-in [build evidence](docs/BUILD_EVIDENCE.md). The owner reports working motion/still
-transitions, vibration, waterfall and manual/automatic/Classic/Robust operation.
+The score reflects changes in one Wi-Fi link. It does **not** measure direction,
+distance, position, people count, static presence or vital signs, and no accuracy
+percentage is claimed. Results depend on placement, router traffic and the radio
+environment. This is not a certified security alarm. Open hardware checks
+(three placements, eight-hour soak, SD faults) are listed in the
+[device checklist](docs/DEVICE_TESTS_TR.md). Wi-Fi credential handling is described in
+[SECURITY.md](SECURITY.md) and [Wi-Fi storage notes](docs/WIFI_CREDENTIAL_STORAGE_SECURITY.md).
 
-Detection depends on placement, traffic and the radio environment. Three-placement
-accuracy, an eight-hour soak and exhaustive alarm/SD-fault/migration checks remain
-open in the [device checklist](docs/DEVICE_TESTS_TR.md). No accuracy percentage is
-claimed. The score does not measure identity, distance, direction, people count,
-static presence or vital signs.
+## Build & test
 
-## Documentation & development
+```sh
+# Flipper app (ufbt 0.2.6, Momentum mntm-012 SDK, API 87.1)
+cd flipper_app && ufbt
 
-- [English installation and usage](docs/INSTALL_EN.md) · [Türkçe kurulum ve kullanım](docs/INSTALL_TR.md)
-- [Protocol 3](PROTOCOL.md) · [Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md)
-- [Build evidence](docs/BUILD_EVIDENCE.md) · [Owner test report](docs/OWNER_TEST_REPORT.md) · [Device checklist](docs/DEVICE_TESTS_TR.md)
+# ESP32-S2 firmware (ESP-IDF v5.5)
+cd esp32 && idf.py set-target esp32s2 build
 
-Run `sh tools/run_tests.sh`. Recorded sanitizer configuration:
-`SANITIZE=1 ASAN_OPTIONS=detect_leaks=0 sh tools/run_tests.sh`.
-FAP: ufbt 0.2.6 + Momentum mntm-012 SDK. ESP: ESP-IDF v5.5, target `esp32s2`.
+# Host tests: motion, protocol, settings, session persistence, alarm, Python tools
+SANITIZE=1 ASAN_OPTIONS=detect_leaks=0 sh tools/run_tests.sh
+```
+
+Build history and evidence: [docs/BUILD_EVIDENCE.md](docs/BUILD_EVIDENCE.md) ·
+[owner test report](docs/OWNER_TEST_REPORT.md).
+
+## Project layout
+
+```
+flipper_app/   Flipper FAP (UI, UART protocol, SD storage, alarm)
+esp32/         ESP32-S2 CSI capture and motion engine
+tools/         Host tests, USB raw capture, replay and HTML reports
+ready/         Prebuilt FAP and ESP binaries
+docs/          Guides, test reports and screenshots
+```
 
 [MIT License](LICENSE) · SauronLAB / Sehmus

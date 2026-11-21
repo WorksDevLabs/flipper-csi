@@ -8,7 +8,7 @@ App(
     fap_category="GPIO",
     fap_icon="csi_radar_10px.png",
     fap_author="SauronLAB / Sehmus",
-    fap_version="2.0",
+    fap_version="2.1",
     fap_description="Wi-Fi CSI motion radar. Reads the score from an ESP32-S2 over UART.",
 )
 

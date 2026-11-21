@@ -23,7 +23,26 @@ int main(void) {
     csi_settings_encode(&s, bytes);
     assert(
         csi_settings_decode(&copy, bytes, sizeof(bytes)) && copy.threshold == 120 &&
-        copy.custom_threshold == 175 && copy.muted && copy.automatic);
+        copy.custom_threshold == 175 && copy.muted && copy.automatic && !copy.quiet_motion);
+    s.quiet_motion = true;
+    csi_settings_encode(&s, bytes);
+    assert(csi_settings_decode(&copy, bytes, sizeof(bytes)) && copy.quiet_motion && copy.muted);
+    assert(!copy.alarm_quiet);
+    s.alarm_quiet = true;
+    csi_settings_encode(&s, bytes);
+    assert(bytes[8] == 15);
+    assert(
+        csi_settings_decode(&copy, bytes, sizeof(bytes)) && copy.alarm_quiet && copy.quiet_motion);
+    s.alarm_quiet = false;
+    {
+        /* 2.0 files (flags <= 3) still decode with quiet_motion off. */
+        CsiSettings old = s;
+        old.quiet_motion = false;
+        uint8_t legacy[CSI_SETTINGS_SIZE];
+        csi_settings_encode(&old, legacy);
+        assert(legacy[8] == 3);
+        assert(csi_settings_decode(&copy, legacy, sizeof(legacy)) && !copy.quiet_motion);
+    }
     for(unsigned i = 0; i < sizeof(bytes); i++) {
         bytes[i] ^= 1;
         assert(!csi_settings_decode(&copy, bytes, sizeof(bytes)));
