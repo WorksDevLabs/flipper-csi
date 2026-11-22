@@ -8,7 +8,7 @@ E11-patched Momentum · API 87.1 · Official ESP32-S2 Wi-Fi Devboard
 ![Flipper API](https://img.shields.io/badge/Flipper%20API-87.1-black)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-[Install (EN)](docs/INSTALL_EN.md) · [Kurulum (TR)](docs/INSTALL_TR.md) · [2.1 UI notes (TR)](docs/UI_2_1_TR.md) · [Protocol](PROTOCOL.md) · [Changelog](CHANGELOG.md)
+[**Download latest release**](https://github.com/sehmusadsoy-ui/flipper-csi/releases/latest) · [Install (EN)](docs/INSTALL_EN.md) · [Kurulum (TR)](docs/INSTALL_TR.md) · [2.1 UI notes (TR)](docs/UI_2_1_TR.md) · [Protocol](PROTOCOL.md) · [Changelog](CHANGELOG.md)
 
 An ESP32-S2 listens to your router's Wi-Fi channel state information (CSI) and
 turns it into a motion score. The Flipper shows that score live, raises an
@@ -76,8 +76,8 @@ Turkish and English UI are both built in (Menu → Help → Language).
 4. Open **Apps → GPIO → CSI Radar Ultimate**, set up Wi-Fi from the menu, place the
    device still and press **OK** to calibrate.
 
-Check files against [`SHA256SUMS.txt`](SHA256SUMS.txt). The previous release is
-[v2.0.0](https://github.com/sehmusadsoy-ui/flipper-csi/releases/tag/v2.0.0).
+Check files against [`SHA256SUMS.txt`](SHA256SUMS.txt). Prebuilt files are also attached to the
+[latest release](https://github.com/sehmusadsoy-ui/flipper-csi/releases/latest).
 
 ## Limits
 
