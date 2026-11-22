@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 set(IDF_TARGET "esp32s2" CACHE STRING "CSI Radar hardware target")
-set(PROJECT_VER "2.0.0")
+set(PROJECT_VER "2.1.0")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(flipper_csi_radar)
 if(NOT IDF_TARGET STREQUAL "esp32s2")

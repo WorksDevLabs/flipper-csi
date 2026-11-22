@@ -14,6 +14,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 
@@ -357,7 +358,10 @@ static void uart_rx_task(void* arg) {
     (void)arg;
     CsiLine line = {0};
     uint8_t bytes[64];
+    /* Hang protection: a stalled Flipper link reboots the board via the task WDT. */
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for(;;) {
+        esp_task_wdt_reset();
         int n = uart_read_bytes(FLIPPER_UART, bytes, sizeof(bytes), pdMS_TO_TICKS(100));
         for(int i = 0; i < n; i++)
             receive_byte(&line, bytes[i]);
@@ -366,7 +370,9 @@ static void uart_rx_task(void* arg) {
 static void usb_rx_task(void* arg) {
     (void)arg;
     CsiLine line = {0};
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for(;;) {
+        esp_task_wdt_reset();
         int c = getchar();
         if(c != EOF)
             receive_byte(&line, (uint8_t)c);
@@ -396,7 +402,10 @@ static void engine_task(void* arg) {
     uint32_t last_status = 0, dsp_max_us = 0, sample_queue_high = 0;
     bool sample_seen = false;
     uint32_t last_sample_ms = 0;
+    /* The engine loop runs every <=10 ms; 5 s without a reset means it is stuck. */
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for(;;) {
+        esp_task_wdt_reset();
         uint32_t now = now_ms(), gen, dropped;
         bool connected, configured;
         uint8_t bssid[6];
