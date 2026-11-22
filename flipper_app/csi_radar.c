@@ -72,6 +72,7 @@ typedef struct {
     uint8_t size, min, max, key;
     bool masked;
     bool invalid;
+    bool turkish;
 } EditorModel;
 typedef struct {
     Gui* gui;
@@ -960,31 +961,76 @@ static void draw(Canvas* c, void* ctx) {
     if(elapsed > m->draw_max_ms) m->draw_max_ms = elapsed;
 }
 /* Fixed ASCII grid includes SPACE at key 0; password is always masked. */
+/* Wi-Fi text entry: labelled field on top, 16x6 key grid in the compact keyboard
+ * font so glyphs never overlap, key 0 = space, key 95 = done (return arrow). */
 static void editor_draw(Canvas* c, void* ctx) {
     EditorModel* m = ctx;
     canvas_clear(c);
     canvas_set_font(c, FontSecondary);
-    char shown[23] = {0};
-    unsigned start = m->size > 20 ? m->size - 20 : 0;
-    for(unsigned i = start; i < m->size; i++)
-        shown[i - start] = m->masked ? '*' : m->buffer[i];
-    draw_text(c, 1, 8, shown);
-    for(unsigned key = 0; key < 96; key++) {
-        int x = (key % 16) * 8, y = 11 + (key / 16) * 7;
-        if(key == m->key) {
-            canvas_draw_box(c, x, y, 8, 7);
-            canvas_set_color(c, ColorWhite);
+    const char* label = m->masked ? (m->turkish ? "Sifre:" : "Pass:") : "SSID:";
+    canvas_draw_str(c, 2, 9, label);
+    int field_x = 3 + canvas_string_width(c, label);
+    canvas_draw_frame(c, field_x - 1, 0, 128 - field_x + 1, 11);
+    int room = 126 - field_x - 2;
+    char shown[66] = {0};
+    unsigned n = 0;
+    for(unsigned i = 0; i < m->size && n < sizeof(shown) - 1; i++)
+        shown[n++] = m->masked ? '*' : m->buffer[i];
+    shown[n] = 0;
+    const char* tail = shown;
+    while(*tail && canvas_string_width(c, tail) > room - 2)
+        tail++; /* keep the end of long input visible */
+    canvas_draw_str(c, field_x + 1, 9, tail);
+    int cursor = field_x + 1 + canvas_string_width(c, tail);
+    if(cursor < 126) canvas_draw_line(c, cursor, 2, cursor, 8);
+
+    /* 6 rows of 16 keys do not fit 64 px legibly: show 4 rows of 10 px and
+     * scroll with the cursor. Small marks at the right edge show more rows. */
+    const unsigned rows = 6, visible = 4;
+    unsigned sel_row = m->key / 16;
+    unsigned top = sel_row < 1 ? 0 : sel_row - 1;
+    if(top > rows - visible) top = rows - visible;
+    canvas_set_font(c, FontSecondary);
+    for(unsigned r = top; r < top + visible; r++) {
+        for(unsigned col = 0; col < 16; col++) {
+            unsigned key = r * 16 + col;
+            int x = col * 8, y = 13 + (int)(r - top) * 10;
+            bool sel = key == m->key;
+            if(sel) {
+                canvas_draw_box(c, x, y, 8, 10);
+                canvas_set_color(c, ColorWhite);
+            }
+            if(key == 0) {
+                canvas_draw_line(c, x + 1, y + 8, x + 6, y + 8); /* space */
+                canvas_draw_line(c, x + 1, y + 6, x + 1, y + 8);
+                canvas_draw_line(c, x + 6, y + 6, x + 6, y + 8);
+            } else if(key == 95) {
+                canvas_draw_line(c, x + 6, y + 2, x + 6, y + 6); /* return arrow: done */
+                canvas_draw_line(c, x + 1, y + 6, x + 6, y + 6);
+                canvas_draw_line(c, x + 1, y + 6, x + 3, y + 4);
+                canvas_draw_line(c, x + 1, y + 6, x + 3, y + 8);
+            } else {
+                canvas_draw_glyph(c, x + 2, y + 8, (char)(32 + key));
+            }
+            if(sel) canvas_set_color(c, ColorBlack);
         }
-        canvas_draw_glyph(c, x + 1, y + 6, key == 95 ? '#' : key == 0 ? '_' : (char)(32 + key));
-        if(key == m->key) canvas_set_color(c, ColorBlack);
     }
-    draw_text(
-        c,
-        1,
-        63,
-        m->invalid  ? (m->masked ? "Min 8 characters required" : "SSID required") :
-        m->key == 0 ? "SPACE  Hold OK:save" :
-                      "OK:add Back:del Hold OK:save");
+    if(top > 0) canvas_draw_line(c, 125, 12, 127, 12);
+    if(top + visible < rows) canvas_draw_line(c, 125, 53, 127, 53);
+
+    canvas_set_font(c, FontSecondary);
+    if(m->invalid) {
+        draw_text(
+            c,
+            1,
+            63,
+            m->masked ? (m->turkish ? "En az 8 karakter gerekli" : "Min 8 characters") :
+                        (m->turkish ? "SSID bos olamaz" : "SSID required"));
+    } else {
+        canvas_draw_str(c, 1, 63, m->turkish ? "Geri:sil" : "Back:del");
+        canvas_draw_str_aligned(
+            c, 127, 63, AlignRight, AlignBottom, m->turkish ? "Uzun OK:kaydet" : "Hold OK:save");
+    }
 }
 static bool editor_input(InputEvent* e, void* ctx) {
     RadarApp* a = ctx;
@@ -1050,6 +1096,7 @@ static void edit_wifi(RadarApp* a, unsigned stage) {
         {
             memset(m, 0, sizeof(*m));
             m->masked = stage == 2;
+            m->turkish = a->settings.language;
             m->max = stage == 1 ? 32 : 63;
             m->min = stage == 1 ? 1 : 8;
             if(stage == 1) {
