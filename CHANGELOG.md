@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.2 — Wi-Fi editor fix (FAP only)
+
+- Readable Wi-Fi SSID/password editor: 4 rows of 10 px that scroll with the cursor
+  instead of 6 overlapping rows; labelled field (SSID / Pass, Sifre in Turkish), long
+  input keeps its end visible, password masked; clear space and done keys; localised
+  hints. Key handling and credential flow unchanged.
+- ESP firmware unchanged from 2.1.1.
+
 ## 2.1.1 — ESP firmware stability and security
 
 - ESP32-S2 firmware 2.1.0: CSI engine, UART and USB tasks are watched by the task
