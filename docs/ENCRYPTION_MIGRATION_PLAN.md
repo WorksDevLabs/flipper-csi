@@ -19,6 +19,33 @@ separate approval. Background and threat model:
 Risk: someone with physical access to the board or a flash dump may read the
 Wi-Fi passphrase. No remote path is known.
 
+## Credential exposure by location (source review, 2026-11-22)
+
+| Location | Exposure | Mitigation in source | Status |
+| --- | --- | --- | --- |
+| RAM — global `credentials` | Needed for reconnects for the life of the firmware; readable by a debugger/JTAG or a RAM dump | inherent while Wi-Fi is configured; JTAG can be disabled by eFuse in option C | accepted, documented |
+| RAM — temporary copies (`saved`, parsed command fields, UART lines) | could survive after use | `secure_zero()` volatile wipe (PR #6, CodeQL #1 fixed on main) | PASS (source, CI); device not reflashed |
+| RAM — `wifi_config_t` stack copy in `configure_wifi()` | left on the stack after `esp_wifi_set_config` | wiped after use (separate fix PR) | PENDING merge |
+| Wi-Fi driver storage | `WIFI_STORAGE_RAM`, driver does not write its own copy to flash | — | PASS (source) |
+| NVS `csi_radar/wifi` blob | plaintext in flash | options A/B below | OPEN |
+| Flipper SD | password is not written to SD logs or settings | — | PASS (source) |
+| UART link Flipper↔ESP | hex-encoded, not encrypted; physical wire only | out of scope for a local wired link | accepted, documented |
+
+**Device note:** the boards in use still run the firmware in `ready/`, which predates
+these fixes. Nothing here claims the physical device is fixed.
+
+## Rollback and data recovery requirements
+
+| Step | Requirement before proceeding |
+| --- | --- |
+| Before any flash | Full flash read-back (`esptool read_flash`) of that board, stored locally and encrypted, never committed; SHA-256 recorded |
+| Restore proof | The backup is written back to the **same** board and boots, before any eFuse change |
+| Option A rollback | Previous `ready/` binaries re-flash cleanly (no eFuse or partition change); Wi-Fi is re-entered from the Flipper |
+| Option B rollback | Only possible while the development-mode reflash budget remains; record `FLASH_CRYPT_CNT` before/after; a lost key means re-flash from plaintext image is impossible |
+| Option C rollback | **None.** Release-mode encryption and Secure Boot are permanent; a lost signing key bricks updates |
+| User data | Only Wi-Fi credentials and threshold live in ESP NVS; both can be re-entered from the Flipper, so NVS loss is recoverable by re-provisioning. Flipper SD data (`apps_data/csi_radar`) is untouched by ESP work |
+| Approval | Owner approves board serial, exact commands and backup hash before each hardware step |
+
 ## Options
 
 | Option | Protects | Hardware risk | Reversible | Notes |
