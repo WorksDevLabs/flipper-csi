@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.1 — ESP firmware stability and security
+
+- ESP32-S2 firmware 2.1.0: CSI engine, UART and USB tasks are watched by the task
+  watchdog (5 s, reboot on hang); previously a stuck task hung silently.
+- Firmware built with performance optimisation (-O2) and ESP-IDF 5.5.5.
+- Wi-Fi credential and command buffers wiped with a non-elidable `secure_zero()`
+  (CodeQL cpp/memset-may-be-deleted fixed); `wifi_config_t` stack copy wiped.
+- Protocol 3 and the `HELLO,2.0.0,3,ESP32-S2` handshake unchanged; Flipper FAP is the
+  same as 2.1. ESP update is app-only (0x10000): bootloader, partition table and NVS
+  (saved Wi-Fi) are kept.
+- Device-verified on an ESP32-S2-WROVER devboard with the Flipper app: Wi-Fi from NVS,
+  13–14 Hz CSI, 0 packet loss, 96–99 KB free heap, max DSP 0.8–1.2 ms.
+
 ## 2.1 — UI update (FAP only)
 
 - Dashboard banner (STILL / MOTION, inverted while moving, flashing on alarm), score bar with threshold marker.
