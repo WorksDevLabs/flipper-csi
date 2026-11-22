@@ -159,7 +159,9 @@ static esp_err_t configure_wifi(const Credentials* c) {
     memcpy(wc.sta.password, c->password, strlen(c->password));
     wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wc.sta.pmf_cfg.capable = true;
-    return esp_wifi_set_config(WIFI_IF_STA, &wc);
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wc);
+    secure_zero(&wc, sizeof(wc)); /* driver keeps its own copy; drop the stack one */
+    return err;
 }
 static esp_err_t save_credentials(const Credentials* c) {
     nvs_handle_t h;
