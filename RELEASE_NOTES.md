@@ -27,5 +27,5 @@ open in docs/DEVICE_TESTS_TR.md. CI is not used as evidence without an actual ru
 - `flipper-csi-v2.0.0.zip`: full source/firmware/guides and internal hashes.
 - `SHA256SUMS.txt`: hashes of the downloadable FAP and ZIP.
 
-[English guide](https://github.com/sehmusadsoy-ui/flipper-csi/blob/main/docs/INSTALL_EN.md) ·
-[Türkçe rehber](https://github.com/sehmusadsoy-ui/flipper-csi/blob/main/docs/INSTALL_TR.md)
+[English guide](https://github.com/WorksDevLabs/flipper-csi/blob/main/docs/INSTALL_EN.md) ·
+[Türkçe rehber](https://github.com/WorksDevLabs/flipper-csi/blob/main/docs/INSTALL_TR.md)
