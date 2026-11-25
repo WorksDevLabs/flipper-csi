@@ -814,7 +814,7 @@ static void draw_content(Canvas* c, void* ctx) {
         labels[1] = "Flipper";
         labels[2] = tr ? "Kart" : "Board";
         labels[3] = "ESP / Link";
-        snprintf(v[0], 32, "2.1 UI");
+        snprintf(v[0], 32, "2.1 WorksDevLabs");
         snprintf(v[1], 32, "E11 / 87.1");
         snprintf(v[2], 32, "ESP32-S2");
         snprintf(v[3], 32, "P3 / %s", m->hello ? "OK" : "--");

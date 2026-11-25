@@ -98,7 +98,7 @@ hedef <=1 yanlış alarm, 10 geçişte >=9 tespit/2 saniye, 10 yeniden bağlant�
 
 ## Geri dönüş
 
-[1.0.0 sürümündeki](https://github.com/sehmusadsoy-ui/flipper-csi/releases/tag/v1.0.0)
+[1.0.0 sürümündeki](https://github.com/WorksDevLabs/flipper-csi/releases/tag/v1.0.0)
 eski ESP firmware'ini aynı adreslerle ve eski FAP'ı yükleyebilirsiniz. Flash silme
 kullanmayın; E11'i değiştirmeyin. 1.0 sessiz mod/profil SD dosyalarını kullanmaz.
 Farklı Wi-Fi/ayar davranışı görülürse önce kaydedilen T'yi ve ağı yeniden kontrol edin.
